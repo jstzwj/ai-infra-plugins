@@ -2,9 +2,7 @@
 
 **[中文文档](README.zh-CN.md)**
 
-A curated marketplace of Claude Code plugins for AI infrastructure engineering.
-
-This repository focuses on workflows around GPU kernels, compilers, runtimes, benchmarking, profiling, and model-serving infrastructure.
+A curated marketplace of Claude Code plugins for AI infrastructure engineering, covering GPU kernels, compilers, runtimes, benchmarking, profiling, and model-serving infrastructure.
 
 > Make sure you trust a plugin before installing, updating, or using it. Plugins may include instructions, MCP servers, hooks, or other software that affects your development environment.
 
@@ -22,46 +20,20 @@ This repository focuses on workflows around GPU kernels, compilers, runtimes, be
 | **tvm** | - | Apache TVM machine learning compilation framework |
 | **xla** | 2.0 | XLA (Accelerated Linear Algebra) compiler for GPUs, CPUs, and TPUs |
 
-## Structure
-
-- `/.claude-plugin/marketplace.json` - marketplace metadata and plugin index
-- `/plugins` - local plugins maintained in this marketplace
-- `/sources` - reference source repositories used by plugin guidance
-- `/.github/scripts` - marketplace validation utilities
-- `/.github/workflows` - CI checks for marketplace metadata
-
 ## Installation
 
-Plugins can be installed from this marketplace with Claude Code's plugin system:
+### 1. Add the marketplace
 
 ```text
-/plugin install {plugin-name}@ai-infra-plugins
+/marketplace add https://github.com/jstzwj/ai-infra-plugins.git
 ```
 
-Or install directly from the repository URL:
+### 2. Install plugins
+
+Once the marketplace is added, install any plugin by name:
 
 ```text
-/plugin install https://github.com/jstzwj/ai-infra-plugins/tree/main/plugins/{plugin-name}
-```
-
-## Plugin Structure
-
-Each plugin follows the Claude Code plugin layout:
-
-```text
-plugin-name/
-├── SKILL.md              # Model-invoked guidance
-├── references/           # Organized reference documentation
-└── README.md             # Plugin documentation
-```
-
-## Validation
-
-If Bun is available, run:
-
-```bash
-bun .github/scripts/validate-marketplace.ts .claude-plugin/marketplace.json
-bun .github/scripts/check-marketplace-sorted.ts
+/plugin install triton@ai-infra-plugins
 ```
 
 ## License
