@@ -6,7 +6,8 @@ description: >
   CUDA C++ Best Practices Guide (Release 13.2). Includes programming model, memory management,
   asynchronous execution, CUDA graphs, cooperative groups, advanced synchronization, async data copies,
   TMA unit, L2 cache control, green contexts, virtual memory, IPC, multi-GPU, driver API, math functions,
-  device-callable APIs, compute capabilities, C++ language support, deployment, and performance optimization.
+  device-callable APIs, compute capabilities, C++ language support, deployment, performance optimization,
+  and CUDA profiler tools (Visual Profiler, nvprof, NVTX).
 version: 13.2
 ---
 
@@ -176,3 +177,6 @@ nvcc -gencode=arch=compute_70,code=sm_70 \
 ### Extended Features
 - [29-extended-gpu-memory](references/29-extended-gpu-memory.md) - EGM, NVLink-C2C, NUMA considerations
 - [30-lazy-loading-and-error-log](references/30-lazy-loading-and-error-log.md) - Module lazy loading, CUDA error log management
+
+### Profiling Tools
+- [31-cuda-profiler](references/31-cuda-profiler.md) - Visual Profiler (nvvp), nvprof CLI, NVTX API, focused profiling, remote profiling, MPI/MPS profiling, dependency analysis, metrics reference, warp state analysis, migration to Nsight tools
