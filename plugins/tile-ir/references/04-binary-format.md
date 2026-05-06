@@ -1,1436 +1,1496 @@
-# 4. Binary Format and Bytecode
+# Binary Format
 
-This document provides comprehensive coverage of the Tile IR binary format -- the stable, versioned bytecode representation used for serialization, storage, and transport of Tile IR modules. The binary format is designed for efficient loading, forward and backward compatibility, and human inspectability.
+The Tile IR bytecode is a binary representation of Tile IR modules including all items (globals, kernels, functions), attributes, and instructions. The bytecode format is stable, versioned, and provides Tile IR portability guarantees. The bytecode format produced by older Tile IR compilers/drivers can be read by newer compilers/drivers. A compiler/driver accepts bytecode up to its supported Tile IR version.
 
-**Tile IR Specification Version:** 13.2 (March 2026)
+The remainder of this section describes the Tile IR bytecode format and its encoding.
 
----
+The bytecode has a few top-level design goals:
 
-## Table of Contents
+- To represent a finite but expandable over time set of operations.
+- To use a minimal set of types for the encoding.
+- To enable manual construction and inspection by humans.
+- To allow lazy loading of functions.
+- To support forward and backward compatibility of the encoding.
 
-1. [Overview](#41-overview)
-2. [Primitives](#42-primitives)
-3. [File Structure](#43-file-structure)
-4. [Type Encodings](#44-type-encodings)
-5. [Attribute Encodings](#45-attribute-encodings)
-6. [Operation Encoding](#46-operation-encoding)
-7. [Section Ordering](#47-section-ordering)
-8. [Encoding Examples](#48-encoding-examples)
+The encoding of individual operations is described in Operations.
 
----
+## Primitives
 
-## 4.1 Overview
+The bytecode is composed of a handful of primitive types, each with their own encoding described below. The format uses these primitives to encode more complex data structures for representing the full set of Tile IR items.
 
-Tile IR uses a **stable, versioned bytecode format** for representing compiled programs. The format is the canonical interchange mechanism between the Tile IR compiler frontends, optimizing middle-end, and the GPU driver runtime. Every conforming Tile IR implementation must be able to parse and execute valid bytecode files.
+### Fixed-Width Integers
 
-### 4.1.1 Design Goals
+Fixed width integers are unsigned integers of a known size (in bytes). The values are stored in little-endian byte order.
 
-The binary format is governed by the following design goals, listed in priority order:
-
-1. **Stability** -- The bytecode format is versioned and guarantees that bytecode produced by a conforming serializer can be loaded by all conforming deserializers of the same or later version. The format never silently changes semantics.
-
-2. **Expandable operations** -- New operations, types, and attributes can be added in future versions without breaking existing parsers. Unknown opcodes are handled gracefully through well-defined skip mechanisms.
-
-3. **Minimal type system** -- The binary format encodes only the types necessary for correct execution. Derived or sugar types are desugared before serialization, keeping the on-disk representation lean.
-
-4. **Human inspectable** -- The format uses recognizable magic bytes, readable section identifiers, and straightforward encodings so that standard binary inspection tools (e.g., `xxd`, `hexdump`) can reveal high-level structure without a dedicated disassembler.
-
-5. **Lazy loading** -- Sections are independently decodable. A consumer can read the string table and function table without parsing all operations, enabling fast startup and partial loading for tooling.
-
-6. **Compact representation** -- Variable-width integer encoding (VarInts) keeps the format small for typical programs where most integer values are small. Repeated strings are deduplicated through the string section.
-
-### 4.1.2 Compatibility Guarantees
-
-The Tile IR binary format provides both forward and backward compatibility:
-
-- **Backward compatibility** -- A new deserializer can always read bytecode produced by an older serializer. New fields added in later versions are simply absent in older files, and the deserializer fills in default values.
-
-- **Forward compatibility** -- An old deserializer encountering bytecode from a newer version handles it gracefully. Sections and fields it does not understand are skipped using their declared lengths. Operations with unknown opcodes are rejected with a clear error message rather than causing undefined behavior.
-
-- **Version targeting** -- A serializer may target a specific older version of the format, omitting features introduced in later versions. This enables cross-version toolchains where the deployment environment runs an older driver.
-
-These guarantees are enforced through the version header and the self-describing section structure described in subsequent sections.
-
-### 4.1.3 Notation Conventions
-
-Throughout this chapter, the following notation conventions are used:
-
-| Notation | Meaning |
-|----------|---------|
-| `byte` | An unsigned 8-bit integer (0x00 to 0xFF) |
-| `uint8` | An unsigned 8-bit integer |
-| `uint16` | A little-endian unsigned 16-bit integer |
-| `uint32` | A little-endian unsigned 32-bit integer |
-| `uint64` | A little-endian unsigned 64-bit integer |
-| `varint` | A variable-width unsigned integer (see Section 4.2.2) |
-| `section[]` | A sequence of zero or more sections |
-| `field?` | An optional field |
-| `0xNN` | A hexadecimal literal |
-| `"str"` | An ASCII string literal |
-| `[N]` | An array of N elements |
-| `{...}` | A grouped structure |
-
-Binary diagrams use a horizontal layout where increasing byte offsets go from left to right and subsequent lines represent increasing offsets:
+> **Note:** All multi-byte values in the Tile IR bytecode format use little-endian encoding, including fixed-width integers, array offsets, and type indices.
 
 ```
-+--------+--------+--------+--------+
-| byte 0 | byte 1 | byte 2 | byte 3 |
-+--------+--------+--------+--------+
-| byte 4 | byte 5 | byte 6 | byte 7 |
-+--------+--------+--------+--------+
+byte ::= `0x00`...`0xFF`
 ```
 
----
+Common fixed-width integer types used throughout the format:
 
-## 4.2 Primitives
+| Type | Size | Description |
+|------|------|-------------|
+| `uint8_t` | 1 byte | 8-bit unsigned integer |
+| `uint16_t` | 2 bytes | 16-bit unsigned integer (little-endian) |
+| `uint32_t` | 4 bytes | 32-bit unsigned integer (little-endian) |
+| `uint64_t` | 8 bytes | 64-bit unsigned integer (little-endian) |
+| `int32_t` | 4 bytes | 32-bit signed integer (little-endian, two's complement) |
+| `int64_t` | 8 bytes | 64-bit signed integer (little-endian, two's complement) |
 
-The Tile IR binary format is built from a small set of primitive encodings. All multi-byte values use little-endian byte order unless explicitly stated otherwise.
-
-### 4.2.1 Fixed-Width Integers
-
-Fixed-width integers are encoded in **little-endian byte order** (least significant byte first). This matches the native byte order of all supported GPU host platforms (x86-64 and ARM64).
-
-```
-byte ::= 0x00 ... 0xFF              (8 bits, unsigned)
-
-uint16 ::= byte[2]                   (16 bits, little-endian)
-  encoding: low_byte || high_byte
-  value:    low_byte + high_byte * 256
-
-uint32 ::= byte[4]                   (32 bits, little-endian)
-  encoding: b0 || b1 || b2 || b3
-  value:    b0 + b1*256 + b2*65536 + b3*16777216
-
-uint64 ::= byte[8]                   (64 bits, little-endian)
-  encoding: b0 || b1 || ... || b7
-  value:    sum(b_i * 256^i for i in 0..7)
-```
-
-**Example:** The value `0x12345678` is encoded as four bytes:
+**Example: Encoding uint32_t value 258**
 
 ```
-Offset:  0x00  0x01  0x02  0x03
-Bytes:   0x78  0x56  0x34  0x12
+Hex bytes: 0x02 0x01 0x00 0x00
+// 258 = 0x00000102
+// Little-endian: least significant byte first
 ```
 
-Signed integers use two's complement representation but are generally avoided in the binary format in favor of unsigned encodings with explicit sign handling at the semantic level.
-
-### 4.2.2 Variable-Width Integers (VarInts)
-
-Variable-width integers (VarInts) are used throughout the format for values that are frequently small but may need to represent the full 64-bit range. Tile IR uses the **PrefixVarInt** encoding, a variant of LEB128 optimized for fast decoding.
-
-#### Encoding Scheme
-
-A PrefixVarInt uses 1 to 9 bytes to encode a 64-bit unsigned value. The first byte determines the total length through a prefix pattern in its most significant bits:
-
-| First byte prefix | Total bytes | Value bits per byte | Maximum value |
-|-------------------|-------------|---------------------|---------------|
-| `0xxxxxxx` | 1 | 7 | 127 |
-| `10xxxxxx` | 2 | 7 | 16,383 |
-| `110xxxxx` | 3 | 7 | 2,097,151 |
-| `1110xxxx` | 4 | 7 | 268,435,455 |
-| `11110xxx` | 5 | 7 | 34,359,738,367 |
-| `111110xx` | 6 | 7 | 4,398,046,511,103 |
-| `1111110x` | 7 | 7 | 562,949,953,421,311 |
-| `11111110` | 8 | 7 | 72,057,594,037,927,935 |
-| `11111111` | 9 | 8 | 18,446,744,073,709,551,615 |
-
-#### Decoding Algorithm
+**Example: Encoding uint64_t value 65537**
 
 ```
-function decode_prefix_varint(bytes):
-    first = bytes[0]
-
-    if first < 0x80:                          # 0xxxxxxx
-        return first                           # 1 byte, 7 bits
-
-    if first < 0xC0:                           # 10xxxxxx
-        return ((first & 0x3F) << 8) | bytes[1]  # 2 bytes, 14 bits
-
-    if first < 0xE0:                           # 110xxxxx
-        return ((first & 0x1F) << 16) | (bytes[1] << 8) | bytes[2]
-
-    if first < 0xF0:                           # 1110xxxx
-        return ((first & 0x0F) << 24) | (bytes[1] << 16)
-             | (bytes[2] << 8) | bytes[3]
-
-    if first < 0xF8:                           # 11110xxx
-        return ((first & 0x07) << 32) | (bytes[1] << 24)
-             | (bytes[2] << 16) | (bytes[3] << 8) | bytes[4]
-
-    if first < 0xFC:                           # 111110xx
-        return ((first & 0x03) << 40) | (bytes[1] << 32)
-             | (bytes[2] << 24) | (bytes[3] << 16)
-             | (bytes[4] << 8) | bytes[5]
-
-    if first < 0xFE:                           # 1111110x
-        return ((first & 0x01) << 48) | (bytes[1] << 40)
-             | (bytes[2] << 32) | (bytes[3] << 24)
-             | (bytes[4] << 16) | (bytes[5] << 8)
-             | bytes[6]
-
-    if first == 0xFE:                          # 11111110
-        return (bytes[1] << 48) | (bytes[2] << 40)
-             | (bytes[3] << 32) | (bytes[4] << 24)
-             | (bytes[5] << 16) | (bytes[6] << 8)
-             | bytes[7]
-
-    # first == 0xFF                             # 11111111
-    return (bytes[1] << 56) | (bytes[2] << 48)
-         | (bytes[3] << 40) | (bytes[4] << 32)
-         | (bytes[5] << 24) | (bytes[6] << 16)
-         | (bytes[7] << 8) | bytes[8]
+Hex bytes: 0x01 0x00 0x01 0x00 0x00 0x00 0x00 0x00
+// 65537 = 0x0000000000010001
+// Little-endian: least significant byte first
 ```
 
-**Note on the 9-byte case:** When the first byte is `0xFF`, the subsequent 8 bytes are interpreted as a raw little-endian `uint64`, providing the full 64-bit range. In this case, each of the 8 following bytes contributes all 8 bits (not 7), giving 8 * 8 = 64 bits of value.
+### Variable-Width Integers
 
-#### Encoding Examples
-
-| Value | Hex bytes | Length |
-|-------|-----------|--------|
-| 0 | `0x00` | 1 |
-| 1 | `0x01` | 1 |
-| 127 | `0x7F` | 1 |
-| 128 | `0x80 0x80` | 2 |
-| 255 | `0x81 0xFF` | 2 |
-| 300 | `0x82 0x2C` | 2 |
-| 16383 | `0xBF 0xFF` | 2 |
-| 16384 | `0xC0 0x40 0x00` | 3 |
-| 65535 | `0xC0 0xFF 0xFF` | 3 |
-
-#### Rationale
-
-PrefixVarInt is preferred over standard LEB128 for two reasons:
-
-1. **Single-pass decoding** -- The length is determined from the first byte alone, allowing immediate allocation and reading. Standard LEB128 requires examining the high bit of every byte sequentially.
-2. **Better branch prediction** -- The length prefix pattern produces predictable branches in the decoder, improving performance on modern CPUs.
-
-### 4.2.3 Byte Sequences
-
-A byte sequence is encoded as a length prefix followed by the raw bytes:
+Variable width integers, or VarInts, provide a compact representation for integers. Each encoded VarInt consists of one to nine bytes, which together represent a single 64-bit value. The Tile IR bytecode utilizes the PrefixVarInt encoding for VarInts. This encoding is a variant of the LEB128 ("Little-Endian Base 128") encoding, where each byte of the encoding provides up to 7 bits for the value, with the remaining bit used to store a tag indicating the number of bytes used for the encoding. Small unsigned integers (less than 2^7) may be stored in one byte, larger unsigned integers (up to 2^14) may be stored in two bytes, and so on.
 
 ```
-byte_sequence ::= length:varint, byte[length]
+varint ::= `0x00`...`0xFF`
 ```
 
-The length field specifies the number of bytes that follow. A length of zero indicates an empty sequence.
+**PrefixVarInt Encoding Detail**
 
-### 4.2.4 String Encoding
+The PrefixVarInt encoding uses a prefix tag in the first byte to signal how many bytes follow:
 
-Strings are stored in the **String Section** (Section 4.3.3) and referenced by index throughout the bytecode. Individual string entries are encoded as:
+| First byte range | Prefix bits | Total bytes | Value range |
+|-----------------|-------------|-------------|-------------|
+| `0x00`-`0x7F` | 0 (high bit = 0) | 1 | 0 to 127 |
+| `0x80`-`0xBF` | `10` (top 2 bits) | 2 | 0 to 16,383 |
+| `0xC0`-`0xDF` | `110` (top 3 bits) | 3 | 0 to 2,097,151 |
+| `0xE0`-`0xEF` | `1110` (top 4 bits) | 4 | 0 to 268,435,455 |
+| `0xF0`-`0xF7` | `11110` (top 5 bits) | 5 | 0 to 34,359,738,367 |
+| `0xF8`-`0xFB` | `111110` (top 6 bits) | 6 | larger values |
+| `0xFC`-`0xFD` | `1111110` (top 7 bits) | 7 | larger values |
+| `0xFE` | `11111110` (top 8 bits) | 8 | larger values |
+| `0xFF` | `11111111` (all bits) | 9 | full 64-bit range |
+
+**Examples:**
 
 ```
-string_entry ::= length:varint, utf8_byte[length]
+Value 0:    [0x00]                   // 1 byte
+Value 42:   [0x2A]                   // 1 byte (0x2A = 42)
+Value 127:  [0x7F]                   // 1 byte (max single-byte)
+Value 128:  [0x80, 0x01]            // 2 bytes (0x80 prefix = 2-byte, data = 0x01 = 1, (1 << 7) | ... = 128)
+Value 300:  [0x80 | ((300 >> 0) & 0x3F), (300 >> 6) & 0xFF]  // 2 bytes
+Value 16383: [0xBF, 0xFF]           // 2 bytes (max two-byte)
 ```
 
-Strings are UTF-8 encoded and are **not** null-terminated in the binary format. The length prefix includes only the UTF-8 content bytes, not a trailing null.
+## File Structure
 
----
+The Tile IR bytecode file is composed of a stream of bytes; which is composed of a header followed by multiple sections. The header contains the 8-byte "magic number", and a version number.
 
-## 4.3 File Structure
+Each section is expected to appear once within a bytecode file and is identified by a type code, the length, alignment, padding, and the payload. This design allows forward compatibility and selective parsing (tools can skip unknown sections, or unneeded sections).
 
-A Tile IR bytecode file consists of a fixed magic number, a version header, and a sequence of sections.
+The overall file layout is shown below:
 
-### 4.3.0 Top-Level Structure
+```
++================================================================+
+|                        Tile IR Bytecode                         |
++================================================================+
+|                                                                |
+|  +----------------------------------------------------------+  |
+|  |                    Header                                  |  |
+|  |  Magic: 0x7F 'T' 'i' 'l' 'e' 'I' 'R' 0x00   (8 bytes)    |  |
+|  |  Version: major(uint8) minor(uint8) tag(uint16) (4 bytes)  |  |
+|  +----------------------------------------------------------+  |
+|                                                                |
+|  +----------------------------------------------------------+  |
+|  |                  Section 1 (String)                        |  |
+|  |  idAndIsAligned: byte                                      |  |
+|  |  length: varint                                            |  |
+|  |  [alignment: varint]                                       |  |
+|  |  [padding: 0xCB bytes]                                     |  |
+|  |  data: byte[]                                              |  |
+|  +----------------------------------------------------------+  |
+|                                                                |
+|  +----------------------------------------------------------+  |
+|  |                  Section 2 (Function Table)                |  |
+|  |  ...                                                       |  |
+|  +----------------------------------------------------------+  |
+|                                                                |
+|  |            ... additional sections ...                     |  |
+|                                                                |
+|  +----------------------------------------------------------+  |
+|  |              End-of-Bytecode Marker (0x00)                 |  |
+|  +----------------------------------------------------------+  |
+|                                                                |
++================================================================+
+```
 
 ```
 bytecode {
-    magic:    "\x7FTileIR\x00"                    // 8 bytes, fixed
-    version:  { uint8 major, uint8 minor, uint16 tag }  // 4 bytes, fixed
-    sections: section[]                             // variable length
+  magic: "\x7FTileIR\x00",
+  version: varint,
+  sections: section[]
 }
 ```
 
-The total file size is determined by reading sections until end-of-file. There is no explicit file-length field; instead, each section carries its own length, and the reader processes sections until the stream is exhausted.
+### Magic Number
 
-### 4.3.1 Magic Number
-
-The first 8 bytes of every Tile IR bytecode file are the fixed magic number:
+The Tile IR bytecode magic number consumes 8 bytes and is `\x7FTileIR\x00`. The magic number must be present at the beginning of the bytecode file to be accepted by the driver.
 
 ```
-Offset:  0x00  0x01  0x02  0x03  0x04  0x05  0x06  0x07
-Bytes:   0x7F  0x54  0x69  0x6C  0x65  0x49  0x52  0x00
-Chars:   DEL   T     i     l     e     I     R     NUL
+Magic bytes (hex):  7F 54 69 6C 65 49 52 00
+Magic bytes (char): \x7F T  i  l  e  I  R  \x00
 ```
 
-This is the bytes `0x7F` followed by the ASCII string `TileIR` followed by a null byte `0x00`.
+The magic number serves several purposes:
+- File format identification for tools and operating systems
+- Quick validation that a file is a valid Tile IR bytecode file
+- The leading `0x7F` byte ensures the file is not mistaken for a text file
 
-The leading `0x7F` byte ensures the file is not confused with a text file (which would start with a printable ASCII character) and follows a convention similar to ELF (`\x7FELF`).
+### Version
 
-The magic number serves three purposes:
+Following the magic number is the version of the bytecode format. The version allows both forwards and backwards compatibility of the format.
 
-1. **Identification** -- Allows `file(1)` and similar tools to identify Tile IR bytecode.
-2. **Validation** -- A quick sanity check before proceeding with parsing.
-3. **Safety** -- The `0x7F` byte prevents the file from being interpreted as a shell script or text file even if accidentally executed.
-
-### 4.3.2 Version
-
-Immediately after the magic number is a 4-byte version structure:
+The version is encoded as three little-endian fixed-width fields immediately following the magic number:
 
 ```
-+--------+--------+--------+--------+
-| major  | minor  |    tag (LE)      |
-| uint8  | uint8  |     uint16       |
-+--------+--------+--------+--------+
-Offset:  0x08     0x09     0x0A     0x0B
+version {
+  major: uint8_t,    // Major version number
+  minor: uint8_t,    // Minor version number
+  tag: uint16_t      // Version tag (little-endian)
+}
 ```
 
-The three fields are:
+**Version Field Detail:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `major` | `uint8` | Major version number. Incremented for breaking format changes. |
-| `minor` | `uint8` | Minor version number. Incremented for backward-compatible additions. |
-| `tag` | `uint16` | Pre-release or vendor tag. Zero for stable releases. Non-zero values indicate development, experimental, or vendor-specific variants. |
+| Field | Type | Offset | Description |
+|-------|------|--------|-------------|
+| `major` | `uint8_t` | 8 | Major version number. Incremented for breaking changes. |
+| `minor` | `uint8_t` | 9 | Minor version number. Incremented for backward-compatible additions. |
+| `tag` | `uint16_t` | 10 | Version tag for distinguishing builds within a version. |
 
-**Current version:** Major = 13, Minor = 2, Tag = 0 (encoding: `0x0D 0x02 0x00 0x00`)
+The total header size is 12 bytes (8 bytes magic + 4 bytes version).
 
-#### Version Comparison Rules
+Each file encodes the version which allows parsers to adapt to the specific version. We do not break old versions of the format, if a newer file uses features an older parser can't interpret, it skips unknown optional features but will fail gracefully in cases where new features are unsupported. A new producer can also target older versions of the bytecode directly ensuring compatibility with older drivers.
 
-A deserializer compares its own supported version against the file version as follows:
+**Version Compatibility Guarantees**
 
-1. If the file's **major** version is greater than the deserializer's maximum supported major version, the file must be **rejected**. The format has changed in a way the deserializer cannot handle.
+Backward Compatibility (a new deserializer can read old bytecode):
 
-2. If the file's major version equals the deserializer's major version, and the file's minor version is less than or equal to the deserializer's maximum supported minor version, the file is **accepted**.
+- The deserializer must support all previous versions of the bytecode format.
+- The deserializer must handle all previously existing opcodes, types, and sections.
+- The deserializer must maintain original program semantics.
 
-3. If the file's major version equals the deserializer's major version, and the file's minor version is **greater** than the deserializer's maximum supported minor version, the deserializer should attempt to read the file. Any sections, types, operations, or attributes it does not recognize should be handled according to the forward compatibility rules (skip unknown sections, reject unknown opcodes with a descriptive error).
+Forward Compatibility (an old deserializer can read new bytecode):
 
-4. If the file's **tag** is non-zero, the deserializer may emit a warning but should still attempt to parse the file. Vendor-specific tags may indicate extensions that the standard deserializer does not understand.
+- The deserializer must fail only if it encounters unknown required features.
+- The deserializer must only read bytecode up to its version.
+- The deserializer must error with a clear message if there is a version mismatch.
 
-#### Version Targeting
+Version Targeting (a serializer can target specific older versions):
 
-A serializer can produce bytecode targeting an older version by:
+- The serializer may target one or more specific older versions.
+- The serializer must validate all features are supported by the requested target version.
+- The serializer must fail if attempting to serialize unsupported features.
 
-- Omitting operations, types, or attributes introduced in newer versions.
-- Using the older version's encoding rules for any features that changed encoding.
-- Setting the version header to the target version, not the serializer's own version.
+Optional vs Required Features (required changes are clearly documented):
 
-This is useful when the deployment environment is known to run an older driver version.
+- Required changes must be introduced in a new bytecode version and graceful failure must be designed.
+- Optional changes must be clearly documented and must preserve the above guarantees.
 
-### 4.3.3 Sections
+Examples:
 
-Following the version header, the remainder of the file consists of a sequence of sections. Each section is self-describing with its own length, allowing unknown sections to be skipped.
+- For new ops: Add new opcodes
+- For changes to existing ops: Typically keep the old format for backward compatibility and add new opcode rather than modifying existing ones
 
-#### Section Structure
+**Version Compatibility Summary Table:**
+
+| Guarantee Type | Rules |
+|---|---|
+| **Backward Compatibility** | Deserializer must support all previous versions; handle all existing opcodes, types, sections; maintain original semantics |
+| **Forward Compatibility** | Deserializer must fail only on unknown required features; only read up to its version; error with clear message on version mismatch |
+| **Version Targeting** | Serializer may target older versions; must validate features supported by target; must fail on unsupported features |
+| **Optional vs Required** | Required changes need new bytecode version with graceful failure; Optional changes must preserve guarantees |
+
+## Sections
+
+The remainder of the bytecode stream is composed of sections. Sections are used to group data within the bytecode and allow operations on the stream to be per-section enabling out-of-order processing of data and/or lazy-loading. Each section contains a section ID, whose high bit indicates if the section has alignment requirements, a length and an optional alignment. A section ID is a 7-bit integer with the high bit indicating if the section has alignment requirements. When an alignment is present, a variable number of padding bytes (each byte = 0xCB) may appear before the section data. The alignment of a section must be a power of 2. The alignment is represented as a VarInt. The padding ensures the section data starts at the specified alignment boundary.
 
 ```
 section {
-    idAndIsAligned: uint8          // Section ID and alignment flag
-    length:         varint         // Byte length of section data (excluding padding)
-    alignment?:     varint         // Present if alignment bit is set; alignment requirement
-    padding:        byte[]         // 0xCB padding bytes to reach alignment
-    data:           byte[length]   // Section payload
+  idAndIsAligned: byte   // low 7 bits = section ID, high bit = alignment bit
+  length: varint,
+  alignment: varint?,    // present only if high bit was set
+  padding: byte[],       // bytes of 0xCB as needed
+  data: byte[]
 }
 ```
 
-#### Section Header: idAndIsAligned
-
-The first byte of each section header encodes both the section identifier and whether the section has a custom alignment requirement:
+**Section Header Byte Encoding:**
 
 ```
-+--------+--------+--------+--------+--------+--------+--------+--------+
-| bit 7  | bit 6  | bit 5  | bit 4  | bit 3  | bit 2  | bit 1  | bit 0  |
-+--------+--------+--------+--------+--------+--------+--------+--------+
-| align  |                  section_id (7 bits)                            |
-+--------+--------+--------+--------+--------+--------+--------+--------+
+idAndIsAligned byte:
++---+---+---+---+---+---+---+---+
+| A |    Section ID (0-127)      |
++---+---+---+---+---+---+---+---+
+  7                              0
+
+A = Alignment bit
+  0 = No alignment required (alignment field absent)
+  1 = Alignment required (alignment field present)
+
+Section ID values:
+  0x01 = String Section
+  0x02 = Function Table Section
+  0x03 = Debug Section
+  0x04 = Constant Data Section
+  0x05 = Type Section
+  0x06 = Global Section
 ```
 
-- **Bit 7 (align)** -- If set (1), the section has a custom alignment requirement. The `alignment` field follows the `length` field. If clear (0), the section data immediately follows the `length` field with no alignment constraint beyond natural byte alignment.
-
-- **Bits 6-0 (section_id)** -- The section identifier, a 7-bit unsigned integer (0x00 to 0x7F).
-
-#### Section Length
-
-The `length` field is a varint specifying the number of bytes in the `data` payload. It does **not** include the bytes consumed by the section header (`idAndIsAligned`, `length`, `alignment`, or `padding`).
-
-#### Section Alignment
-
-When the alignment bit is set, the `alignment` field (a varint) specifies the byte alignment requirement for the start of the section data. The alignment value must be a power of 2.
-
-After reading the alignment value, the serializer must insert `0xCB` padding bytes until the current file offset is a multiple of the alignment value. The value `0xCB` is chosen as a distinctive padding byte that is unlikely to appear as valid data, aiding in debugging and forensic analysis.
-
-A reader computing the padding required after the alignment field:
+**Example: Section with alignment**
 
 ```
-current_offset = position_after_alignment_field
-target_offset = ceil(current_offset / alignment) * alignment
-padding_bytes = target_offset - current_offset
-verify: all padding bytes equal 0xCB
-data_start = target_offset
-data_end = data_start + length
+idAndIsAligned = 0x85       // High bit set (aligned), section ID = 0x05 (Type)
+                             // Binary: 10000101
+alignment = 8               // 8-byte alignment
+padding = 0xCB 0xCB 0xCB    // Padding to reach next 8-byte boundary
+data = ...                  // Type section data
 ```
 
-#### Section IDs
-
-The following section IDs are defined:
-
-| ID | Name | Required | Description |
-|----|------|----------|-------------|
-| 0x00 | _Reserved_ | -- | Reserved for future use; must not appear in bytecode |
-| 0x01 | String Section | Yes | String table for all string references |
-| 0x02 | Function Table Section | Yes | Describes kernel entry points |
-| 0x03 | Debug Section | Optional | Debug information (locations, scopes) |
-| 0x04 | Constant Data Section | Optional | Inline constant data blocks |
-| 0x05 | Type Section | Yes | Type definitions referenced by operations |
-| 0x06 | Global Section | Optional | Global variable definitions |
-| 0x07-0x7F | _Unassigned_ | -- | Reserved for future section types |
-
----
-
-### 4.3.4 String Section (ID 0x01)
-
-The String Section contains a table of UTF-8 strings referenced by index throughout the bytecode. All string values -- operation names, attribute keys, global variable names, kernel names, debug file paths -- are stored here and referenced by their 0-based index.
+**Example: Section without alignment**
 
 ```
-string_section {
-    count: varint          // Number of string entries
-    entries: string[count] // String entries
-}
+idAndIsAligned = 0x01       // High bit clear (no alignment), section ID = 0x01 (String)
+                             // Binary: 00000001
+length = 256                // 256 bytes of string data follow
+data = ...                  // String section data (no alignment field, no padding)
+```
 
-string {
-    length: varint         // Number of UTF-8 bytes
-    data: byte[length]     // UTF-8 encoded string content
+**Deserialization**
+
+The following are the implications of the section format on the deserialization process.
+
+- The deserializer must read the section ID and length (idAndIsAligned) as a single byte.
+- If the section ID has the high bit set, the deserializer must read the alignment (alignment) and apply the alignment by skipping 0xCB bytes as needed.
+- The deserializer must read the length (length) bytes of the payload. The length is a VarInt.
+- The deserializer must move on to the next section until EOF (end of file).
+
+### String Section
+
+The string section holds all textual names used by the module to avoid repeating them inline. The section is encoded with the total number of strings, followed by the start index of each of the individual strings. The remaining encoding contains a single blob containing all the strings concatenated together. This design allows loading a specific string without reading the whole section. Strings in the bytecode are stored as raw byte sequences (in UTF-8 encoding) with an associated size. Finding the i-th string involves jumping to stringStartIndex[i] and reading until the next offset or end of the blob.
+
+```
+strings {
+  numStrings: varint,
+  stringStartIndex: uint32[],
+  stringData: byte[]
 }
 ```
 
-**String reference:** When another section refers to a string, it uses a varint index into this table. Index 0 refers to the first string, index 1 to the second, and so on.
-
-**Deduplication:** Serializers should deduplicate identical strings to minimize file size. Deserializers treat the index as a position-based lookup and do not require deduplication.
-
-**Empty string:** The empty string (length = 0) is a valid entry.
-
-**Example encoding of a string table with three entries:**
+**String Section Layout:**
 
 ```
-Strings: ["hello", "world", "cuda_tile.module"]
-
-Encoding:
-  count: 0x03                                 // 3 entries
-  entry[0]: 0x05 'h' 'e' 'l' 'l' 'o'         // "hello", 5 bytes
-  entry[1]: 0x05 'w' 'o' 'r' 'l' 'd'         // "world", 5 bytes
-  entry[2]: 0x10 'c' 'u' 'd' 'a' '_' 't' 'i' 'l' 'e' '.' 'm' 'o' 'd' 'u' 'l' 'e'
-                                               // "cuda_tile.module", 16 bytes
++---------------------------------------------------+
+| String Section                                     |
++---------------------------------------------------+
+| numStrings: varint     (e.g., 3 strings)          |
++---------------------------------------------------+
+| stringStartIndex[0]: uint32_t (offset to string 0)|
+| stringStartIndex[1]: uint32_t (offset to string 1)|
+| stringStartIndex[2]: uint32_t (offset to string 2)|
++---------------------------------------------------+
+| stringData blob:                                   |
+|  "kernel_A\0" "threadIdx\0" "blockDim\0"         |
++---------------------------------------------------+
 ```
 
----
-
-### 4.3.5 Function Table Section (ID 0x02)
-
-The Function Table Section lists all kernel entry points in the module. Each entry describes the kernel's name, signature, and location within the operation stream.
+**String Access Algorithm:**
 
 ```
-function_table_section {
-    count: varint                // Number of function entries
-    entries: function_entry[count]
-}
-
-function_entry {
-    name_index: varint           // String table index of kernel name
-    entry_flag: byte             // Flags (see below)
-    num_params: varint           // Number of parameters
-    param_types: type_ref[num_params]  // Type references for parameters
-    body_offset: varint          // Byte offset of kernel body in the Type Section's operation stream
-    body_length: varint          // Byte length of the kernel body
-}
+function getString(index):
+    start = stringStartIndex[index]
+    if index + 1 < numStrings:
+        end = stringStartIndex[index + 1]
+    else:
+        end = len(stringData)
+    return stringData[start:end]
 ```
 
-#### Entry Flag Encoding
-
-The `entry_flag` byte encodes kernel properties:
+**Example:**
 
 ```
-+--------+--------+--------+--------+--------+--------+--------+--------+
-| bit 7  | bit 6  | bit 5  | bit 4  | bit 3  | bit 2  | bit 1  | bit 0  |
-+--------+--------+--------+--------+--------+--------+--------+--------+
-|  0-0   |  0-0   |  0-0   |  0-0   |  0-0   |  0-0   |extern  | kernel |
-+--------+--------+--------+--------+--------+--------+--------+--------+
+numStrings = 3
+stringStartIndex = [0, 9, 19]
+stringData = "kernel_A\0threadIdx\0blockDim\0"
+
+String 0: "kernel_A"   (offset 0..8)
+String 1: "threadIdx"  (offset 9..18)
+String 2: "blockDim"   (offset 19..27)
 ```
 
-| Bit | Name | Description |
-|-----|------|-------------|
-| 0 | `kernel` | Set if this is a kernel entry point (callable from host) |
-| 1 | `extern` | Set if this function is externally visible (callable from other modules) |
-| 2-7 | _Reserved_ | Must be zero; reserved for future use |
+### Function Table Section
 
-**Notes:**
+The function table section enumerates the module's functions and embeds their code inline. First, numFunctions indicates how many functions follow; for each function i, nameIndex[i] is an index into the string section naming the function and signatureIndex[i] is an index into the Type section specifying its parameter, return types, global flags, etc (so multiple functions with identical signatures can share the same type entry). The field functionLocIndex[i] is a VarInt referencing an entry in the Debug Section that describes the function's definition location (e.g., source file and line). If functionLocIndex[i] is zero, there is no associated debug metadata for the function's definition scope. lengthOfFunction[i] states how many bytes of code belong to function i, and functionBody[i] contains exactly those bytes of instruction encodings. This layout avoids a separate code section and makes parsing each function straightforward: once you read the metadata for function i, you can either parse its instructions directly or skip them by advancing lengthOfFunction[i] bytes. The instruction encoding itself allows each operation to include a slot for its source location, referencing an entry in the debug section.
 
-- A `kernel` entry point is the standard form -- it represents a Tile IR kernel launched from the host via the CUDA driver API.
-- An `extern` function is visible for inter-module linking but is not directly launchable as a kernel.
-- If both bits are clear (0x00), the function is internal to the module and not accessible externally.
-- The `type_ref` for each parameter is an index into the Type Section's type table (see Section 4.4).
+The instruction encodings (opcodes, operands, etc.) are described later under Operation Opcodes and Encodings Section.
 
----
-
-### 4.3.6 Constant Data Section (ID 0x04)
-
-The Constant Data Section stores inline binary data for constant values that cannot be represented as simple scalar literals.
+The function table encoding has been updated to include function flags and optional optimization hints:
 
 ```
-constant_data_section {
-    count: varint                     // Number of constant data blocks
-    entries: constant_block[count]
-}
-
-constant_block {
-    alignment: varint                 // Alignment requirement (power of 2)
-    data_length: varint               // Byte length of data
-    padding: byte[]                   // 0xCB padding to alignment
-    data: byte[data_length]           // Raw binary data
+functionTable {
+  numFunctions : varint
+  // for each function i in [0..numFunctions-1]:
+  nameIndex[i] : varint                    // References the function's name in the StringSec
+  signatureIndex[i] : varint               // References the extended function signature in the TypeSec
+  entryFlag[i] : byte                      // Function flags (visibility, kind, optimization hints)
+  functionLocIndex[i] : varint             // 0 means no debug location
+  optimizationHints[i]? : self-contained   // Present only if HasOptimizationHints flag is set
+  lengthOfFunction[i] : varint
+  functionBody[i] : byte[lengthOfFunction[i]]
 }
 ```
 
-Constant data blocks are referenced by other sections (e.g., DenseElements attributes) through their 0-based index. The alignment field ensures that vectorized load instructions can correctly read the constant data at runtime without misalignment penalties.
+The entryFlag byte encodes the following information:
 
----
+| Bit | Mask | Field | Meaning |
+|-----|------|-------|---------|
+| 0 | 0x01 | Visibility | 0 = Public, 1 = Private |
+| 1 | 0x02 | Function Kind | 0 = Device Function, 1 = Kernel Entry Point |
+| 2 | 0x04 | Optimization Hints | 0 = No hints present, 1 = Optimization hints follow |
+| 3-7 | - | Reserved | Reserved for future extensions |
 
-### 4.3.7 Type Section (ID 0x05)
-
-The Type Section contains all type definitions used in the module, along with the operation stream for function bodies.
+**entryFlag byte layout:**
 
 ```
-type_section {
-    type_count: varint               // Number of type definitions
-    types: type_def[type_count]      // Type definitions
-    op_stream_length: varint         // Byte length of the combined operation stream
-    op_stream: byte[op_stream_length] // All function bodies concatenated
+entryFlag byte:
++---+---+---+---+---+---+---+---+
+| R | R | R | R | R | O | K | V |
++---+---+---+---+---+---+---+---+
+  7   6   5   4   3   2   1   0
+
+V = Visibility (0=Public, 1=Private)
+K = Kind (0=Device, 1=Kernel)
+O = Has Optimization Hints (0=No, 1=Yes)
+R = Reserved
+```
+
+**Example: Encoding a public kernel entry point with optimization hints**
+
+```
+entryFlag = 0x06   // Binary: 00000110
+                   // V=0 (Public), K=1 (Kernel), O=1 (Has Hints)
+
+entryFlag = 0x01   // Binary: 00000001
+                   // V=1 (Private), K=0 (Device Function), O=0 (No Hints)
+```
+
+**Function Table Layout Diagram:**
+
+```
++-----------------------------------------------------------------+
+| Function Table Section                                           |
++-----------------------------------------------------------------+
+| numFunctions: varint (e.g., 2)                                  |
++-----------------------------------------------------------------+
+| Function 0:                                                     |
+|   nameIndex[0]: varint         -> "matmul_kernel"               |
+|   signatureIndex[0]: varint    -> FunctionType(Tensor, Tensor)  |
+|   entryFlag[0]: 0x02           -> Public Kernel Entry            |
+|   functionLocIndex[0]: varint  -> debug offset or 0             |
+|   lengthOfFunction[0]: varint  -> e.g., 256                     |
+|   functionBody[0]: byte[256]   -> instruction bytes             |
++-----------------------------------------------------------------+
+| Function 1:                                                     |
+|   nameIndex[1]: varint         -> "helper_func"                  |
+|   signatureIndex[1]: varint    -> FunctionType()                 |
+|   entryFlag[1]: 0x01           -> Private Device Function        |
+|   functionLocIndex[1]: 0       -> no debug info                  |
+|   lengthOfFunction[1]: varint  -> e.g., 128                     |
+|   functionBody[1]: byte[128]   -> instruction bytes             |
++-----------------------------------------------------------------+
+```
+
+### Constant Data Section
+
+The constant data section holds large constants (e.g., dense tensors, large arrays) separately from code.
+
+The current implementation does not impose explicit size limits on individual constants. Constants are stored using uint64_t offsets, allowing for very large constant data. However, practical limits may be imposed by available memory and any downstream compiler or runtime limitations (such as CUBIN generation constraints).
+
+As we have done with the string section we move the constants into their own section to avoid bloating the function table section and allow for the lazy loading of specific constants when needed. Individual operations may reference constants by an index into this section. The section is encoded with the total number of constants, followed by the start index of each of the individual constants. The remaining encoding contains a single blob containing all the constants concatenated together.
+
+```
+constant {
+  numConstants: varint,
+  constantStartIndex: uint64_t[],
+  constantData: byte[]
 }
 ```
 
-Each type definition encodes a complete Tile IR type. The operation stream contains the encoded operations for all function bodies; the Function Table Section's `body_offset` and `body_length` fields reference into this stream.
-
----
-
-### 4.3.8 Global Section (ID 0x06)
-
-The Global Section defines module-level global variables.
+**Constant Section Layout Diagram:**
 
 ```
-global_section {
-    count: varint                    // Number of global variables
-    entries: global_entry[count]
-}
-
-global_entry {
-    name_index: varint               // String table index of global name
-    type_ref: varint                 // Type section index of global type
-    is_mutable: byte                 // 0 = constant, 1 = mutable
-    initializer?: constant_initializer  // Present if is_mutable == 0
-}
-
-constant_initializer {
-    tag: byte                        // Initializer kind
-    data: ...                        // Depends on tag
-}
++---------------------------------------------------+
+| Constant Data Section                              |
++---------------------------------------------------+
+| numConstants: varint (e.g., 2)                    |
++---------------------------------------------------+
+| constantStartIndex[0]: uint64_t  -> offset 0      |
+| constantStartIndex[1]: uint64_t  -> offset 128    |
++---------------------------------------------------+
+| constantData:                                      |
+|   [0..127]:   Dense FP16 tensor (128 bytes)        |
+|   [128..255]: Dense I32 array (128 bytes)          |
++---------------------------------------------------+
 ```
 
-Initializer tags:
-
-| Tag | Name | Description |
-|-----|------|-------------|
-| 0x00 | Uninitialized | No initial value; contents undefined |
-| 0x01 | Zero | Zero-initialized (all bits zero) |
-| 0x02 | Scalar | A single scalar value, encoded per element type |
-| 0x03 | Dense | Dense tensor data from Constant Data Section |
-| 0x04 | External | Symbol reference (linker resolved) |
-
----
-
-### 4.3.9 Debug Section (ID 0x03)
-
-The Debug Section contains optional debug information including source locations, file references, scope metadata, and compilation unit information.
+**Constant Access Algorithm:**
 
 ```
-debug_section {
-    version: varint                  // Debug info format version
-    compile_unit_count: varint       // Number of compilation units
-    compile_units: compile_unit[compile_unit_count]
-    file_table: file_table           // Source file references
-    location_table: location_table   // Source location mappings
+function getConstant(index):
+    start = constantStartIndex[index]
+    if index + 1 < numConstants:
+        end = constantStartIndex[index + 1]
+    else:
+        end = len(constantData)
+    return constantData[start:end]
+```
+
+### Type Section
+
+The type section stores all type definitions (scalar types, function signatures, parametric types, etc.) used in the module. The section begins with numTypes specifying how many types follow, then an array of offsets (typeStartIndex) into the encoded blob (typeData). To load the i-th type definition, you use the offset contained in typeStartIndex[i] to index into the typeData blob and parse the definition from there. The typeData blob is a single encoded binary blob containing the type definitions concatenated together.
+
+```
+type {
+  numTypes: varint
+  typeStartIndex: uint32_t[] // array of offsets, length = numTypes
+  typeData: byte[]           // concatenated bytes for all type definitions
 }
 ```
 
-See Chapter 9 (Debug Information) for the complete debug section format.
-
----
-
-## 4.4 Type Encodings
-
-Each type in the Type Section is encoded as a tagged union. The first byte (the **type tag**) identifies the kind of type, followed by any type-specific payload.
-
-### 4.4.1 Type Tag Table
-
-The complete set of type tags is:
-
-| Tag | Name | Payload | Description |
-|-----|------|---------|-------------|
-| 0x00 | I1 | none | 1-bit integer (predicate) |
-| 0x01 | I8 | none | 8-bit signless integer |
-| 0x02 | I16 | none | 16-bit signless integer |
-| 0x03 | I32 | none | 32-bit signless integer |
-| 0x04 | I64 | none | 64-bit signless integer |
-| 0x05 | F16 | none | IEEE 754 half-precision (binary16) |
-| 0x06 | BF16 | none | Brain floating-point (bfloat16) |
-| 0x07 | F32 | none | IEEE 754 single-precision (binary32) |
-| 0x08 | TF32 | none | TensorFloat-32 (8 exp, 10 mantissa) |
-| 0x09 | F64 | none | IEEE 754 double-precision (binary64) |
-| 0x0A | F8E4M3FN | none | FP8 E4M3 FN (4 exp, 3 mantissa, no infinity, no NaN) |
-| 0x0B | F8E5M2 | none | FP8 E5M2 (5 exp, 2 mantissa, with NaN/inf) |
-| 0x0C | Pointer | element_type: type_ref | Typed pointer |
-| 0x0D | Tile | shape, element_type | N-dimensional tile tensor |
-| 0x0E | TensorView | shape, element_type, strides | Strided memory view |
-| 0x0F | PartitionView | tile_shape, tensor_view: type_ref, dim_map | Tiled partition of a tensor view |
-| 0x10 | Function | param_types, return_types | Function type signature |
-| 0x11 | Token | none | Memory ordering token |
-| 0x12-0xFF | _Reserved_ | -- | Reserved for future type extensions |
-
-### 4.4.2 Element Type Encoding
-
-Integer and floating-point element types are encoded as a single byte (the type tag) with no additional payload:
+**Type Section Layout Diagram:**
 
 ```
-element_type ::= type_tag:byte    // One of 0x00 through 0x0B
++---------------------------------------------------+
+| Type Section                                       |
++---------------------------------------------------+
+| numTypes: varint (e.g., 5)                        |
++---------------------------------------------------+
+| typeStartIndex[0]: uint32_t -> offset 0            |
+| typeStartIndex[1]: uint32_t -> offset 1            |
+| typeStartIndex[2]: uint32_t -> offset 2            |
+| typeStartIndex[3]: uint32_t -> offset 10           |
+| typeStartIndex[4]: uint32_t -> offset 25           |
++---------------------------------------------------+
+| typeData:                                          |
+|   [0]: typeTag=0x03 (i32)                         |
+|   [1]: typeTag=0x07 (f32)                         |
+|   [2..9]: typeTag=0x0D (Tile), elementType=1,     |
+|           shape=[128, 64]                          |
+|   [10..24]: typeTag=0x10 (Function), ...           |
+|   [25]: typeTag=0x11 (Token)                       |
++---------------------------------------------------+
 ```
 
-### 4.4.3 Pointer Type Encoding
+Each individual type definition will consist of a typeTag followed by a predefined payload structure specific to that typeTag. This deterministic approach allows parsers to understand the payload layout based solely on the typeTag.
 
 ```
-pointer_type {
-    tag: 0x0C                      // Pointer tag
-    element_type_ref: varint       // Index into type table for pointed-to type
+typeTag : byte
+payload : byte[lengthOfPayload]
+```
+
+typeTag indicates the "kind" of type. This can be a simple scalar, a function signature, or a more complex structure like a tensor.
+
+payload is interpreted based on typeTag. For instance, a function signature might store the number of parameters, references to their types, etc, while a tensor type might store dimensions and an element type.
+
+### Detailed Type Encodings
+
+The following sections describe the specific encoding format for each type tag.
+
+#### Integer Types (typeTag = 0x00-0x04)
+
+Integer types require no additional payload data beyond the type tag:
+
+```c
+// Complete encoding: 1 byte total
+I1:   typeTag = 0x00  // 1-bit boolean
+I8:   typeTag = 0x01  // 8-bit integer
+I16:  typeTag = 0x02  // 16-bit integer
+I32:  typeTag = 0x03  // 32-bit integer
+I64:  typeTag = 0x04  // 64-bit integer
+```
+
+| typeTag | Meaning | Size | Payload Size | Total Encoding |
+|---------|---------|------|-------------|----------------|
+| 0x00 | i1 (boolean) | 1 bit | 0 bytes | 1 byte |
+| 0x01 | i8 | 8 bits | 0 bytes | 1 byte |
+| 0x02 | i16 | 16 bits | 0 bytes | 1 byte |
+| 0x03 | i32 | 32 bits | 0 bytes | 1 byte |
+| 0x04 | i64 | 64 bits | 0 bytes | 1 byte |
+
+**Example: Encoding an i32 type**
+
+```
+Hex bytes: 0x03
+```
+
+#### Float Types (typeTag = 0x05-0x0B)
+
+Float types require no additional payload data beyond the type tag:
+
+```c
+// Complete encoding: 1 byte total
+F16:      typeTag = 0x05  // 16-bit IEEE float (half precision)
+BF16:     typeTag = 0x06  // 16-bit bfloat (brain float)
+F32:      typeTag = 0x07  // 32-bit IEEE float (single precision)
+TF32:     typeTag = 0x08  // TensorFloat-32 (19-bit mantissa)
+F64:      typeTag = 0x09  // 64-bit IEEE float (double precision)
+F8E4M3FN: typeTag = 0x0A  // 8-bit float (E4M3FN format, FP8)
+F8E5M2:   typeTag = 0x0B  // 8-bit float (E5M2 format, FP8)
+```
+
+| typeTag | Meaning | Bit Width | Exponent Bits | Mantissa Bits | Payload |
+|---------|---------|-----------|---------------|---------------|---------|
+| 0x05 | F16 | 16 | 5 | 10 | None |
+| 0x06 | BF16 | 16 | 8 | 7 | None |
+| 0x07 | F32 | 32 | 8 | 23 | None |
+| 0x08 | TF32 | 19 | 8 | 10 | None |
+| 0x09 | F64 | 64 | 11 | 52 | None |
+| 0x0A | F8E4M3FN | 8 | 4 | 3 | None |
+| 0x0B | F8E5M2 | 8 | 5 | 2 | None |
+
+**Example: Encoding an F32 type**
+
+```
+Hex bytes: 0x07
+```
+
+#### Pointer Type (typeTag = 0x0C)
+
+```c
+typeTag : byte = 0x0C      // Pointer type
+pointeeTypeIndex : varint  // Index of the pointee type
+```
+
+**Example: Encoding a pointer to i32 (assuming i32 is type index 0)**
+
+```
+Hex bytes: 0x0C 0x00
+// typeTag=0x0C (Pointer), pointeeTypeIndex=0 (i32)
+```
+
+**Example: Encoding a pointer to F16 (assuming F16 is type index 5)**
+
+```
+Hex bytes: 0x0C 0x05
+// typeTag=0x0C (Pointer), pointeeTypeIndex=5 (F16)
+```
+
+#### Tile Type (typeTag = 0x0D)
+
+```c
+typeTag : byte = 0x0D      // Tile type
+elementTypeIndex : varint  // Index of the element type
+shape : int64_t[]          // Shape dimensions (var-length array)
+```
+
+The shape is encoded as a varint count followed by the dimensions:
+
+```
+numDims: varint            // Number of dimensions
+dims: int64_t[numDims]     // Dimension values as int64_t
+```
+
+**Example: Encoding a 128x64 F32 tile**
+
+```
+Hex bytes:
+  0x0D                   // typeTag = Tile
+  0x07                   // elementTypeIndex = 7 (F32)
+  0x02                   // numDims = 2
+  0x80 0x01              // dim[0] = 128 (varint encoded)
+  0x40                   // dim[1] = 64  (varint encoded)
+```
+
+#### TensorView Type (typeTag = 0x0E)
+
+```c
+typeTag : byte = 0x0E      // TensorView type
+elementTypeIndex : varint  // Index of the element type
+numDims : varint           // Number of dimensions
+shape : int64_t[numDims]   // Shape dimensions
+strides : int64_t[numDims] // Stride values
+indexTypeTag : byte        // Index type (I32=0x03 or I64=0x04)
+```
+
+**Example: Encoding a 2D TensorView of BF16 with strides**
+
+```
+Hex bytes:
+  0x0E                   // typeTag = TensorView
+  0x06                   // elementTypeIndex = 6 (BF16)
+  0x02                   // numDims = 2
+  [shape: 256, 128]      // shape dimensions as int64_t pairs
+  [strides: 128, 1]      // stride values as int64_t pairs
+  0x03                   // indexTypeTag = I32
+```
+
+#### PartitionView Type (typeTag = 0x0F)
+
+```c
+typeTag : byte = 0x0F        // PartitionView type
+numTileDims : varint         // Number of tile shape dimensions
+tileShape : int32_t[numTileDims]   // Tile shape
+tensorViewTypeIndex : varint // Index of the TensorView type
+numDimMap : varint           // Number of dimension mapping entries
+dimMap : int32_t[numDimMap]  // Dimension mapping
+masked : byte                // Masked flag (0x00=false, 0x01=true)
+```
+
+**Example: Encoding a 2D partition view**
+
+```
+Hex bytes:
+  0x0F                   // typeTag = PartitionView
+  0x02                   // numTileDims = 2
+  [32, 64 as int32_t]    // tileShape = [32, 64]
+  0x03                   // tensorViewTypeIndex = 3
+  0x02                   // numDimMap = 2
+  [0, 1 as int32_t]      // dimMap = [0, 1]
+  0x00                   // masked = false
+```
+
+#### Function Type (typeTag = 0x10)
+
+```c
+typeTag : byte = 0x10 // Function Type
+numParams : varint    // Number of input parameters
+paramTypeIndices : varint[]  // Array of type indices for each parameter
+numResults : varint   // Number of results
+resultTypeIndices : varint[] // Array of type indices for each return value
+```
+
+The function type encoding stores only the essential type information (input and result types). Argument attributes and other function metadata are stored separately in the function table section.
+
+**Example: Encoding a function type (i32, F32) -> (F32)**
+
+```
+Hex bytes:
+  0x10                   // typeTag = Function
+  0x02                   // numParams = 2
+  0x03                   // paramTypeIndices[0] = 3 (i32)
+  0x07                   // paramTypeIndices[1] = 7 (F32)
+  0x01                   // numResults = 1
+  0x07                   // resultTypeIndices[0] = 7 (F32)
+```
+
+#### Token Type (typeTag = 0x11)
+
+```c
+typeTag : byte = 0x11  // Token type (no additional payload)
+```
+
+**Example: Encoding a token type**
+
+```
+Hex bytes: 0x11
+```
+
+#### Complete Type Tag Reference
+
+| typeTag | Type | Payload Fields | Payload Size |
+|---------|------|---------------|-------------|
+| 0x00 | i1 | None | 0 |
+| 0x01 | i8 | None | 0 |
+| 0x02 | i16 | None | 0 |
+| 0x03 | i32 | None | 0 |
+| 0x04 | i64 | None | 0 |
+| 0x05 | F16 | None | 0 |
+| 0x06 | BF16 | None | 0 |
+| 0x07 | F32 | None | 0 |
+| 0x08 | TF32 | None | 0 |
+| 0x09 | F64 | None | 0 |
+| 0x0A | F8E4M3FN | None | 0 |
+| 0x0B | F8E5M2 | None | 0 |
+| 0x0C | Pointer | pointeeTypeIndex : varint | variable |
+| 0x0D | Tile | elementTypeIndex : varint, shape : int64_t[] | variable |
+| 0x0E | TensorView | elementTypeIndex : varint, shape : int64_t[], strides : int64_t[], indexTypeTag : byte | variable |
+| 0x0F | PartitionView | tileShape : int32_t[], tensorViewTypeIndex : varint, dimMap : int32_t[], masked : byte | variable |
+| 0x10 | Function | numParams : varint, paramTypeIndices : varint[], numResults : varint, resultTypeIndices : varint[] | variable |
+| 0x11 | Token | None | 0 |
+
+### Attribute Encoding
+
+Attributes in Tile IR bytecode can be encoded in two ways:
+
+- **Inline encoding** - Simple attributes are encoded directly in the instruction stream
+- **Self-contained encoding** - Complex attributes include a type tag followed by their data
+
+Self-contained attributes use the following format:
+
+```
+attributeTag : byte
+attributeData : byte[]  // Format depends on attributeTag
+```
+
+The following attribute tags are supported:
+
+#### Integer Attribute (attributeTag = 0x01)
+
+```c
+attributeTag : byte = 0x01  // Integer attribute
+typeIndex : varint          // Type index for the integer type
+value : varint              // Integer value (zero-extended)
+```
+
+**Example: Encoding integer attribute value 42 of type i32 (type index 3)**
+
+```
+Hex bytes: 0x01 0x03 0x2A
+// attributeTag=0x01 (Integer), typeIndex=3 (i32), value=42
+```
+
+**Example: Encoding integer attribute value 1000 of type i64 (type index 4)**
+
+```
+Hex bytes: 0x01 0x04 0xE8 0x07
+// attributeTag=0x01, typeIndex=4 (i64), value=1000 (varint 0xE8 0x07)
+```
+
+#### Float Attribute (attributeTag = 0x02)
+
+```c
+attributeTag : byte = 0x02  // Float attribute
+typeIndex : varint          // Type index for the float type
+value : byte[]              // APFloat representation (variable length)
+```
+
+The APFloat representation stores the floating-point value in its native binary format. The size depends on the float type:
+- F16: 2 bytes
+- BF16: 2 bytes
+- F32: 4 bytes (IEEE 754 binary32)
+- F64: 8 bytes (IEEE 754 binary64)
+- F8E4M3FN: 1 byte
+- F8E5M2: 1 byte
+
+**Example: Encoding F32 value 3.14 (type index 7, approximately 0x4048F5C3)**
+
+```
+Hex bytes: 0x02 0x07 0xC3 0xF5 0x48 0x40
+// attributeTag=0x02, typeIndex=7 (F32), value=3.14 as IEEE 754 LE
+```
+
+#### Bool Attribute (attributeTag = 0x03)
+
+```c
+attributeTag : byte = 0x03  // Bool attribute
+value : byte                // 0x00=false, 0x01=true
+```
+
+**Example: Encoding boolean true**
+
+```
+Hex bytes: 0x03 0x01
+// attributeTag=0x03, value=true
+```
+
+#### Type Attribute (attributeTag = 0x04)
+
+```c
+attributeTag : byte = 0x04  // Type attribute
+typeIndex : varint          // Index of the referenced type
+```
+
+**Example: Encoding a reference to F16 (type index 5)**
+
+```
+Hex bytes: 0x04 0x05
+// attributeTag=0x04, typeIndex=5 (F16)
+```
+
+#### String Attribute (attributeTag = 0x05)
+
+```c
+attributeTag : byte = 0x05  // String attribute
+stringIndex : varint        // Index into the string section
+```
+
+**Example: Encoding a reference to string at index 3**
+
+```
+Hex bytes: 0x05 0x03
+// attributeTag=0x05, stringIndex=3
+```
+
+#### Array Attribute (attributeTag = 0x06)
+
+```c
+attributeTag : byte = 0x06    // Array attribute
+numElements : varint          // Number of elements
+elements : self-contained[]   // Array of self-contained attributes
+```
+
+**Example: Encoding an array of two integers [10, 20]**
+
+```
+Hex bytes: 0x06 0x02 0x01 0x03 0x0A 0x01 0x03 0x14
+// attributeTag=0x06 (Array), numElements=2
+//   element[0]: 0x01 (Integer), typeIndex=3 (i32), value=10
+//   element[1]: 0x01 (Integer), typeIndex=3 (i32), value=20
+```
+
+#### DenseElements Attribute (attributeTag = 0x07)
+
+```c
+attributeTag : byte = 0x07  // DenseElements attribute
+typeIndex : varint          // Type index for the shaped type
+constantIndex : varint      // Index into constant section (for numeric data)
+// OR for string data:
+numStrings : varint         // Number of string elements
+stringIndices : varint[]    // Indices into string section
+```
+
+The DenseElements attribute has two variants depending on whether the data is numeric or string:
+
+**Numeric variant:**
+
+```
+0x07 typeIndex constantIndex
+```
+
+**String variant:**
+
+```
+0x07 typeIndex numStrings stringIndices[]
+```
+
+**Example: Encoding a dense F32 tensor referencing constant data**
+
+```
+Hex bytes: 0x07 0x07 0x00
+// attributeTag=0x07, typeIndex=7 (F32 tensor), constantIndex=0
+```
+
+#### DivBy Attribute (attributeTag = 0x08)
+
+```c
+attributeTag : byte = 0x08    // DivBy attribute
+divisor : varint              // Divisor value
+flags : byte                  // Bit 0: unsignedInt, Bit 1: hasEvery, Bit 2: hasAlong
+every : signed_varint?        // Present if Bit 1 set
+along : signed_varint?        // Present if Bit 2 set
+```
+
+**DivBy flags byte layout:**
+
+```
+flags byte:
++---+---+---+---+---+---+---+---+
+| R | R | R | R | R | A | E | U |
++---+---+---+---+---+---+---+---+
+  7   6   5   4   3   2   1   0
+
+U = unsignedInt (bit 0)
+E = hasEvery (bit 1)
+A = hasAlong (bit 2)
+R = Reserved
+```
+
+**Example: Encoding DivBy with divisor=16, unsigned, with every=4**
+
+```
+Hex bytes: 0x08 0x10 0x03 0x04
+// attributeTag=0x08, divisor=16, flags=0x03 (unsigned + hasEvery), every=4
+```
+
+#### SameElements Attribute (attributeTag = 0x09)
+
+```c
+attributeTag : byte = 0x09  // SameElements attribute
+numValues : varint          // Number of values
+values : int64_t[]          // Array of int64 values
+```
+
+**Example: Encoding SameElements with values [1, 2, 3]**
+
+```
+Hex bytes: 0x09 0x03 [1 as int64_t] [2 as int64_t] [3 as int64_t]
+// attributeTag=0x09, numValues=3, values=[1, 2, 3]
+```
+
+#### Dictionary Attribute (attributeTag = 0x0A)
+
+```c
+attributeTag : byte = 0x0A      // Dictionary attribute
+numEntries : varint             // Number of key-value pairs
+entries : dictEntry[]           // Array of dictionary entries
+```
+
+```
+dictEntry {
+  keyStringIndex : varint       // Index of key string
+  value : self-contained        // Self-contained attribute value
 }
 ```
 
-**Example:** `ptr<f32>` is encoded as:
+**Example: Encoding a dictionary with one entry {"fast" = true}**
 
 ```
-0x0C                    // Pointer tag
-0x07                    // Type table index for F32 (assuming F32 is at index 7)
+Hex bytes: 0x0A 0x01 0x00 0x03 0x01
+// attributeTag=0x0A, numEntries=1
+//   entry[0]: keyStringIndex=0 ("fast"), value=Bool(true)
 ```
 
-### 4.4.4 Tile Type Encoding
+#### OptimizationHints Attribute (attributeTag = 0x0B)
+
+```c
+attributeTag : byte = 0x0B  // OptimizationHints attribute
+dictionary : dictionary      // Dictionary attribute (without tag)
+```
+
+The OptimizationHints attribute contains an inline dictionary (without the dictionary attribute tag byte). This is used to provide optimization hints to the compiler such as unrolling factors, tiling strategies, or memory access patterns.
+
+#### NonNegative Attribute (attributeTag = 0x0C)
+
+```c
+attributeTag : byte = 0x0C  // NonNegative attribute
+// No additional payload - presence indicates non-negative constraint
+```
+
+**Complete Attribute Tag Reference:**
+
+| Tag | Attribute | Payload Fields |
+|-----|-----------|---------------|
+| 0x01 | Integer | typeIndex : varint, value : varint |
+| 0x02 | Float | typeIndex : varint, value : byte[] |
+| 0x03 | Bool | value : byte (0x00/0x01) |
+| 0x04 | Type | typeIndex : varint |
+| 0x05 | String | stringIndex : varint |
+| 0x06 | Array | numElements : varint, elements : self-contained[] |
+| 0x07 | DenseElements | typeIndex : varint, constantIndex : varint (numeric) OR numStrings : varint, stringIndices : varint[] (string) |
+| 0x08 | DivBy | divisor : varint, flags : byte, every? : signed_varint, along? : signed_varint |
+| 0x09 | SameElements | numValues : varint, values : int64_t[] |
+| 0x0A | Dictionary | numEntries : varint, entries : dictEntry[] |
+| 0x0B | OptimizationHints | dictionary : dictionary (inline, no tag) |
+| 0x0C | NonNegative | No payload |
+
+### Global Section
+
+The global section stores module-level global variables. This section is optional and is only present if the module contains cuda_tile.global operations.
 
 ```
-tile_type {
-    tag: 0x0D                      // Tile tag
-    rank: varint                   // Number of dimensions (0 for scalar)
-    shape: varint[rank]            // Size of each dimension
-    element_type_ref: varint       // Index into type table for element type
+global {
+  numGlobals: varint
+  // for each global i in [0..numGlobals-1]:
+  symbolNameIndex[i] : varint   // References the global's symbol name in the StringSec
+  valueTypeIndex[i] : varint    // Type index for the global's value type
+  constantValueIndex[i] : varint // Index into constant section for the global's initial value
 }
 ```
 
-The rank may be zero, representing a scalar tile. All shape values must be positive integers that are powers of 2 (a Tile IR constraint enforced at validation time, not at the binary format level).
+Each global variable is encoded with:
 
-**Example:** `tile<128x64xf32>` is encoded as:
+- **symbolNameIndex:** Index into the string section for the global's symbol name
+- **valueTypeIndex:** Index into the type section for the global's type (typically a shaped type like tensor)
+- **constantValueIndex:** Index into the constant section containing the global's initial value
 
-```
-0x0D                    // Tile tag
-0x02                    // Rank = 2
-0x80 0x00               // Dim 0 = 128 (varint encoding)
-0x40                    // Dim 1 = 64 (varint encoding)
-0x07                    // Element type ref = F32
-```
-
-**Example:** `tile<i32>` (scalar tile) is encoded as:
+**Global Section Layout Diagram:**
 
 ```
-0x0D                    // Tile tag
-0x00                    // Rank = 0 (scalar)
-0x03                    // Element type ref = I32
++---------------------------------------------------+
+| Global Section                                     |
++---------------------------------------------------+
+| numGlobals: varint (e.g., 2)                      |
++---------------------------------------------------+
+| Global 0:                                          |
+|   symbolNameIndex[0]: varint -> "global_buffer"   |
+|   valueTypeIndex[0]: varint -> TensorType(256,F32)|
+|   constantValueIndex[0]: varint -> constant[0]     |
++---------------------------------------------------+
+| Global 1:                                          |
+|   symbolNameIndex[1]: varint -> "global_mask"      |
+|   valueTypeIndex[1]: varint -> TensorType(128,I1) |
+|   constantValueIndex[1]: varint -> constant[1]     |
++---------------------------------------------------+
 ```
 
-### 4.4.5 TensorView Type Encoding
+### Debug Section
+
+The debug section stores the serialized debug information (for more details about debug information see Debug Info). This section is optional as certain tools may ignore it and serializers may leave it empty for release builds.
 
 ```
-tensor_view_type {
-    tag: 0x0E                      // TensorView tag
-    rank: varint                   // Number of dimensions
-    shape: varint[rank]            // Size of each dimension (may use dynamic marker)
-    element_type_ref: varint       // Index into type table for element type
-    stride_count: varint           // Number of stride values (= rank)
-    strides: varint[stride_count]  // Stride values (may use dynamic marker)
+debug {
+  diOpsNum: varint          // Total number of operations with debug info
+  padding: bytes            // Align to 4 bytes
+  diIndexOffsets: uint32_t[] // Per op offset into the debug info indices
+  diIndicesNum: varint      // Total number of debug info indices
+  padding: bytes            // Align to 4 bytes
+  diIndices: uint64_t[]     // Array of debug indices to debug info attributes
+  diAttrNum: varint         // Total number of debug info attributes
+  padding: bytes            // Align to 4 bytes
+  diOffsets: uint32_t[]     // Per debug info attribute offset into the debug info data
+  diData: bytes             // Data for each debug info attribute
 }
 ```
 
-Dynamic dimensions and strides use the sentinel value `0xFFFFFFFFFFFFFFFF` (max uint64) to indicate a runtime-determined value. In the varint encoding, this sentinel requires 9 bytes.
+The debug section uses a multi-level indirection scheme:
 
-**Example:** `tensor_view<?x?xf32, strides=[?,1]>` is encoded as:
+- **Operations:** diOpsNum operations have debug info, with diIndexOffsets pointing into the indices array
+- **Indices:** diIndicesNum total indices in diIndices, referencing debug info attributes
+- **Attributes:** diAttrNum debug info attributes stored in diData with offsets in diOffsets
 
-```
-0x0E                    // TensorView tag
-0x02                    // Rank = 2
-0xFF ... (9 bytes)      // Dim 0 = dynamic (max uint64)
-0xFF ... (9 bytes)      // Dim 1 = dynamic (max uint64)
-0x07                    // Element type ref = F32
-0x02                    // Stride count = 2
-0xFF ... (9 bytes)      // Stride 0 = dynamic
-0x01                    // Stride 1 = 1
-```
-
-### 4.4.6 PartitionView Type Encoding
+**Debug Section Multi-Level Indirection Diagram:**
 
 ```
-partition_view_type {
-    tag: 0x0F                      // PartitionView tag
-    tile_rank: varint              // Rank of the tile shape
-    tile_shape: varint[tile_rank]  // Tile dimensions
-    tensor_view_ref: varint        // Type table index for the underlying tensor view
-    dim_map_count: varint          // Number of dimension mapping entries
-    dim_map: varint[dim_map_count] // Dimension mapping values
++-----------------------------------------------------------------+
+| Debug Section                                                    |
++-----------------------------------------------------------------+
+| Level 1: Operation -> Index mapping                              |
+|   diOpsNum: varint                                              |
+|   diIndexOffsets: uint32_t[]  -> points into diIndices           |
++-----------------------------------------------------------------+
+| Level 2: Index -> Attribute mapping                              |
+|   diIndicesNum: varint                                          |
+|   diIndices: uint64_t[]       -> points into diData              |
++-----------------------------------------------------------------+
+| Level 3: Attribute Data                                          |
+|   diAttrNum: varint                                            |
+|   diOffsets: uint32_t[]       -> offsets within diData           |
+|   diData: bytes               -> actual debug info entries       |
++-----------------------------------------------------------------+
+```
+
+Each debug info attribute begins with a debugEntryType indicating what kind of debug info it is:
+
+| Value | Meaning |
+|-------|---------|
+| 0x00 | Unknown |
+| 0x01 | DICompileUnit |
+| 0x02 | DIFile |
+| 0x03 | DILexicalBlock |
+| 0x04 | DILoc |
+| 0x05 | DISubprogram |
+| 0x06 | CallSite |
+
+debugEntryPayload describes line, file, variable name, function index, instruction offset, etc. Each debugEntryType has a fixed, known structure. If functionLocIndex[i] or an instruction's locationIndex is non-zero, it references debugEntryOffset[...] in this section, whose payload can store file/line info or other metadata.
+
+**Debug Entry Payload Formats**
+
+Each debug entry in diData begins with a debugEntryType byte followed by type-specific data:
+
+```
+debugEntry {
+  debugEntryType : byte     // Identifies the debug info type
+  entryData : byte[]        // Type-specific payload (format below)
 }
 ```
 
-The `dim_map` encodes how partition view dimensions map to tensor view dimensions. Each entry is an integer index into the tensor view's dimensions.
+The following debug entry types are supported:
 
-### 4.4.7 Function Type Encoding
+Unknown Debug Info (debugEntryType = 0x00)
 
-```
-function_type {
-    tag: 0x10                      // Function tag
-    num_params: varint             // Number of parameter types
-    param_types: varint[num_params]   // Type table indices for parameters
-    num_results: varint            // Number of result types
-    result_types: varint[num_results] // Type table indices for results
-}
+```c
+debugEntryType : varint = 0x00  // Unknown debug info
+// No additional payload
 ```
 
-### 4.4.8 Token Type Encoding
+DICompileUnit (debugEntryType = 0x01)
 
-```
-token_type {
-    tag: 0x11                      // Token tag
-    // No additional payload
-}
-```
-
----
-
-## 4.5 Attribute Encodings
-
-Attributes encode compile-time constant metadata attached to operations. Each attribute is encoded as a tagged value.
-
-### 4.5.1 Attribute Tag Table
-
-| Tag | Name | Payload | Description |
-|-----|------|---------|-------------|
-| 0x01 | Integer | value | Integer attribute value |
-| 0x02 | Float | value | Floating-point attribute value |
-| 0x03 | Bool | value | Boolean attribute value |
-| 0x04 | Type | type_ref | Type attribute value |
-| 0x05 | String | string_ref | String attribute value |
-| 0x06 | Array | count, elements | Array of attributes |
-| 0x07 | DenseElements | shape, data | Dense tensor of elements |
-| 0x08 | DivBy | divisor | Divisibility constraint |
-| 0x09 | SameElements | element | All elements are identical |
-| 0x0A | Dictionary | count, entries | Key-value dictionary |
-| 0x0B | OptimizationHints | flags | Optimization hint flags |
-| 0x0C | NonNegative | none | Non-negative constraint annotation |
-
-### 4.5.2 Integer Attribute (0x01)
-
-```
-integer_attribute {
-    tag: 0x01
-    bit_width: varint              // Bit width of the integer
-    value: varint                  // Unsigned value (sign interpreted per context)
-}
+```c
+debugEntryType : varint = 0x01  // DICompileUnit
+language : varint               // Source language identifier
+fileIndex : varint              // Index of associated DIFile
+producer : varint               // String index for compiler producer
+optimized : byte                // 0x00=false, 0x01=true
+emissionKind : varint           // Emission kind enumeration
 ```
 
-The `bit_width` field records the intended width (e.g., 32 for `i32`). The value is stored as an unsigned varint; sign interpretation is determined by the consuming operation.
+DIFile (debugEntryType = 0x02)
 
-### 4.5.3 Float Attribute (0x02)
-
-```
-float_attribute {
-    tag: 0x02
-    type_tag: byte                 // Element type tag (0x05-0x0B)
-    value: byte[float_size]        // IEEE bit pattern in little-endian
-}
+```c
+debugEntryType : varint = 0x02  // DIFile
+filename : varint               // String index for filename
+directory : varint              // String index for directory
 ```
 
-The `float_size` is determined by the `type_tag`:
+DILexicalBlock (debugEntryType = 0x03)
 
-| type_tag | Type | float_size (bytes) |
-|----------|------|--------------------|
-| 0x05 | F16 | 2 |
-| 0x06 | BF16 | 2 |
-| 0x07 | F32 | 4 |
-| 0x08 | TF32 | 4 |
-| 0x09 | F64 | 8 |
-| 0x0A | F8E4M3FN | 1 |
-| 0x0B | F8E5M2 | 1 |
-
-**Example:** The value `3.14` as `f32` (bit pattern `0x4048F5C3`) is encoded as:
-
-```
-0x02                    // Float attribute tag
-0x07                    // F32 type tag
-0xC3 0xF5 0x48 0x40    // IEEE 754 bit pattern, little-endian
+```c
+debugEntryType : varint = 0x03  // DILexicalBlock
+line : varint                   // Line number
+column : varint                 // Column number
+scopeIndex : varint             // Index of parent scope (DIFile or DISubprogram)
 ```
 
-### 4.5.4 Bool Attribute (0x03)
+DILoc (debugEntryType = 0x04)
 
-```
-bool_attribute {
-    tag: 0x03
-    value: byte                    // 0x00 = false, 0x01 = true
-}
-```
-
-### 4.5.5 Type Attribute (0x04)
-
-```
-type_attribute {
-    tag: 0x04
-    type_ref: varint               // Index into the type table
-}
+```c
+debugEntryType : varint = 0x04  // DILoc (source location)
+line : varint                   // Line number
+column : varint                 // Column number
+scopeIndex : varint             // Index of scope (DISubprogram, DILexicalBlock, etc.)
+inlinedAtIndex : varint         // Index of inlined location (0 if not inlined)
 ```
 
-### 4.5.6 String Attribute (0x05)
+DISubprogram (debugEntryType = 0x05)
 
-```
-string_attribute {
-    tag: 0x05
-    string_ref: varint             // Index into the string table
-}
-```
-
-### 4.5.7 Array Attribute (0x06)
-
-```
-array_attribute {
-    tag: 0x06
-    count: varint                  // Number of elements
-    elements: attribute[count]     // Each element is a full attribute encoding
-}
+```c
+debugEntryType : varint = 0x05  // DISubprogram (function debug info)
+name : varint                   // String index for function name
+linkageName : varint            // String index for linkage name
+fileIndex : varint              // Index of associated DIFile
+line : varint                   // Line number where function is defined
+typeIndex : varint              // Index of function type
+scopeLineIndex : varint         // Line number where scope begins
+flags : varint                  // Function flags (visibility, etc.)
+unitIndex : varint              // Index of associated DICompileUnit
 ```
 
-Array attributes can be nested: an element may itself be an array attribute, a dictionary attribute, or any other attribute type.
+CallSite (debugEntryType = 0x06)
 
-### 4.5.8 DenseElements Attribute (0x07)
-
-```
-dense_elements_attribute {
-    tag: 0x07
-    element_type_ref: varint       // Type table index for element type
-    rank: varint                   // Number of shape dimensions
-    shape: varint[rank]            // Shape dimensions
-    data_block_ref: varint         // Index into Constant Data Section
-}
+```c
+debugEntryType : varint = 0x06  // CallSite location
+calleeIndex : varint            // Index of called location
+callerIndex : varint            // Index of calling location
 ```
 
-The DenseElements attribute represents a dense tensor of constant values. The raw data is stored in the Constant Data Section and referenced by index. The data is laid out in row-major order with the element type's natural byte width.
+## Operation Opcodes and Encodings
 
-### 4.5.9 DivBy Attribute (0x08)
-
-```
-div_by_attribute {
-    tag: 0x08
-    divisor: varint                // The divisor value (must be > 0)
-}
-```
-
-Indicates that the annotated value is known to be divisible by `divisor`. Used for alignment and stride constraints.
-
-### 4.5.10 SameElements Attribute (0x09)
+Each instruction in Tile IR bytecode is represented as:
 
 ```
-same_elements_attribute {
-    tag: 0x09
-    element: attribute             // The repeated element value
-}
+opcode : byte
+locationIndex : varint
+instructionSpecificFields : byte[]
 ```
 
-Represents a tensor where every element has the same value. Only the single element is stored.
+In this representation, opcode uniquely identifies the operation. This matches one of the operations defined in the Tile IR dialect. locationIndex is always present; if the instruction does not carry debug info, this field is 0. A non-zero value refers to an entry in the Debug Section that contains file, line, or other source-level metadata. The instruction-specific fields (operands, attributes, etc.) follow a layout defined by the opcode.
 
-### 4.5.11 Dictionary Attribute (0x0A)
+Additionally, we do not store a resultIndex for each producing instruction. Instead, we rely on a sequential pass to assign local value indices at parse-time.
 
-```
-dictionary_attribute {
-    tag: 0x0A
-    count: varint                  // Number of key-value pairs
-    entries: dict_entry[count]
-}
+Older parsers are expected to skip or reject unknown opcodes. Over time, new operations can be added simply by assigning new opcodes and defining their binary payload formats.
 
-dict_entry {
-    key_ref: varint                // String table index for key
-    value: attribute               // Attribute value
-}
-```
+### Operation Encoding Details
 
-Dictionary attributes are used for named properties on operations. Keys are string references; values can be any attribute type.
+The general structure for operation encoding follows a consistent pattern, but varies based on the operation's characteristics:
 
-### 4.5.12 OptimizationHints Attribute (0x0B)
+**General Operation Structure**
 
 ```
-optimization_hints_attribute {
-    tag: 0x0B
-    flags: varint                  // Bitfield of optimization hints
-}
+opcode : byte                     // Operation identifier
+locationIndex : varint            // Debug location (0 = no debug info)
+resultTypes : typeIndex[]?        // Present for variadic result operations
+flags : varint?                   // Optional flags for operations with optional fields
+attributes : encoded_attr[]       // Operation-specific attributes
+operands : operand_encoding       // Operation-specific operand encoding
+regions : region_encoding[]?      // Present for operations with regions
 ```
 
-Flag bits (defined to date):
+**Flags Field Encoding**
 
-| Bit | Name | Description |
-|-----|------|-------------|
-| 0 | `noinline` | Do not inline this operation |
-| 1 | `always_inline` | Always inline this operation |
-| 2 | `fast_math` | Allow fast-math transformations |
-| 3 | `unroll` | Suggest unrolling loops |
-| 4 | `novectorize` | Do not vectorize |
-| 5-63 | _Reserved_ | Reserved for future hints |
-
-### 4.5.13 NonNegative Attribute (0x0C)
+For operations with optional attributes or operands, a flags field is used:
 
 ```
-non_negative_attribute {
-    tag: 0x0C
-    // No additional payload
-}
+flags : varint                    // Bitfield encoding optional presence
 ```
 
-Annotates a value as being known non-negative at compile time. Used for optimization and validation of stride, shape, and index calculations.
+The flags field uses individual bits to indicate the presence of optional attributes and operands:
 
----
+- Bits 0-N: Optional attributes (in declaration order)
+- Bits N+1-M: Optional operands (in declaration order)
 
-## 4.6 Operation Encoding
-
-Operations are encoded in a compact binary format within the operation stream of the Type Section. Each operation consists of a fixed header followed by variable-length sections for results, attributes, operands, and regions.
-
-### 4.6.1 General Operation Structure
+UnitAttr attributes are encoded only in the flags field -- no additional data is written.
 
 ```
-operation {
-    opcode: varint                          // Operation kind
-    location_index: varint                  // Debug location (string table or location table index)
-    flags: byte                             // Operation-specific flags
-    num_result_types: varint                // Number of result types (if has_results flag set)
-    result_types: varint[num_result_types]  // Type table indices for results
-    num_attributes: varint                  // Number of attributes
-    attributes: attr_entry[num_attributes]  // Named attributes
-    operand_encoding: ...                   // Depends on operand pattern (see 4.6.2)
-    num_regions: varint                     // Number of nested regions
-    regions: region[num_regions]            // Nested regions
-}
+flags byte bit layout:
++---+---+---+---+---+---+---+---+
+| ... | OptOp2 | OptOp1 | OptAttr2 | OptAttr1 |
++---+---+---+---+---+---+---+---+
+
+Bit 0: First optional attribute present
+Bit 1: Second optional attribute present
+...
+Bit N: Nth optional attribute present
+Bit N+1: First optional operand group present
+Bit N+2: Second optional operand group present
+...
 ```
 
-#### Flags Byte
+**Operand Encoding Patterns**
 
-```
-+--------+--------+--------+--------+--------+--------+--------+--------+
-| bit 7  | bit 6  | bit 5  | bit 4  | bit 3  | bit 2  | bit 1  | bit 0  |
-+--------+--------+--------+--------+--------+--------+--------+--------+
-|  0-0   | region | attrs  | results|          reserved                    |
-+--------+--------+--------+--------+--------+--------+--------+--------+
-```
+Operands are encoded differently based on the operation's operand structure:
 
-| Bit | Name | Description |
-|-----|------|-------------|
-| 0-4 | reserved | Must be zero |
-| 5 | `has_results` | If set, the operation produces results (num_result_types and result_types follow) |
-| 6 | `has_attrs` | If set, the operation has attributes (num_attributes and attributes follow) |
-| 7 | `has_regions` | If set, the operation contains regions (num_regions and regions follow) |
+- **Fixed Operands:** Written as sequential operand indices
+- **Variadic Operands:** Prefixed with operand count, then indices
+- **AttrSizedOperandSegments:** Each operand group encoded separately
 
-This flag-based encoding allows simple operations (e.g., `return` with no results, no attributes, no regions) to be encoded very compactly.
+```c
+// Fixed operands (e.g., binary operations)
+operand1Index : varint
+operand2Index : varint
 
-### 4.6.2 Operand Encoding Patterns
+// Variadic operands (e.g., function calls)
+numOperands : varint
+operandIndices : varint[numOperands]
 
-Operations declare their operands using one of three encoding patterns. The pattern is determined by the operation's definition (not encoded explicitly in the bytecode; the decoder knows the pattern from the opcode).
-
-#### Fixed Operands
-
-Fixed-operand operations have a known, constant number of operands determined by the opcode. The operands are simply encoded as a sequence of SSA value indices:
-
-```
-fixed_operands {
-    operands: varint[N]            // N is fixed per opcode
-}
+// AttrSizedOperandSegments (e.g., operations with optional operand groups)
+group1 : optional_operand_group
+group2 : optional_operand_group
+...
 ```
 
-Each `varint` is an index into the current function's SSA value table, referencing the value produced by a preceding operation (or a function parameter).
+**Result Type Encoding**
 
-**Example:** `addf` takes exactly 2 operands (the two input tiles).
+- **Fixed Results:** No result types encoded (inferred from operation)
+- **Variadic Results:** Number of results encoded, followed by type indices
 
-#### Variadic Operands
-
-Variadic-operand operations have a variable number of operands, encoded with an explicit count:
-
-```
-variadic_operands {
-    count: varint                  // Number of operands
-    operands: varint[count]        // SSA value indices
-}
+```c
+// Variadic results
+numResults : varint
+resultTypeIndices : varint[numResults]
 ```
 
-**Example:** `cat` takes a variadic number of tile operands to concatenate.
+### Region Encoding
 
-#### AttrSizedOperandSegments
-
-Some operations have multiple operand groups, where each group can be variadic. The sizes are encoded as an attribute of the operation. In the binary format, this is encoded as:
+Operations with regions encode them after operands:
 
 ```
-attr_sized_operands {
-    total_count: varint            // Total number of operands across all groups
-    operands: varint[total_count]  // All operands concatenated
-    // Group sizes are stored as an attribute named "operand_segments"
-}
-```
+numRegions : varint
+regions : region[numRegions]
 
-The `operand_segments` attribute is an Array attribute of Integer attributes, one per group, specifying how many operands belong to each group. The decoder reads the total operand array and then splits it according to the segment sizes.
-
-**Example:** The `for` operation has three operand groups:
-1. Loop bounds (`lower`, `upper`, `step`) -- 3 operands
-2. `iter_values` -- variadic
-3. Body region arguments -- implicit from iter_values
-
-### 4.6.3 Attribute Entry Encoding
-
-Each named attribute on an operation is encoded as:
-
-```
-attr_entry {
-    name_ref: varint               // String table index for attribute name
-    value: attribute               // Attribute value (see Section 4.5)
-}
-```
-
-### 4.6.4 Region Encoding
-
-A region represents a ordered list of basic blocks. Each basic block contains a sequence of operations.
-
-```
 region {
-    num_blocks: varint             // Number of basic blocks
-    blocks: block[num_blocks]
+  numBlocks : varint
+  blocks : block[numBlocks]
 }
 
 block {
-    num_args: varint               // Number of block arguments
-    arg_types: varint[num_args]    // Type table indices for arguments
-    num_ops: varint                // Number of operations in this block
-    operations: operation[num_ops] // Operations
+  numArgs : varint
+  argTypeIndices : varint[numArgs]
+  numOps : varint
+  operations : operation[numOps]
 }
 ```
 
-For regions with a single block (the common case for Tile IR), `num_blocks` is 1 and the single block typically has no arguments (arguments are handled through SSA values from enclosing operations).
-
-**Multi-block regions** are used by control flow operations (e.g., `if` with then/else blocks). Block arguments replace phi nodes for data flow at join points.
-
-### 4.6.5 SSA Value Numbering
-
-Within a function body, SSA values are numbered sequentially starting from 0:
-
-- Function parameters occupy indices 0 through `num_params - 1`.
-- Each operation that produces results assigns the next available indices to its results.
-- Operands reference these indices.
-
-This numbering is implicit -- there is no explicit index stored for results. The decoder maintains a counter and assigns consecutive indices to each result as operations are decoded.
-
-**Example:** Consider this sequence:
+**Region Encoding Diagram:**
 
 ```
-entry @example(%a: tile<f32>, %b: tile<f32>) {   // %a = index 0, %b = index 1
-    %c = addf %a, %b : tile<f32>                  // %c = index 2
-    %d = mulf %c, %a : tile<f32>                  // %d = index 3
-    return %d : tile<f32>
-}
++---------------------------------------------------+
+| Region                                             |
++---------------------------------------------------+
+| numBlocks: varint (e.g., 2)                       |
++---------------------------------------------------+
+| Block 0 (entry block):                             |
+|   numArgs: varint (e.g., 2)                       |
+|   argTypeIndices[0]: varint -> I32                |
+|   argTypeIndices[1]: varint -> F32                |
+|   numOps: varint (e.g., 3)                        |
+|   operation[0]: ...                               |
+|   operation[1]: ...                               |
+|   operation[2]: ...                               |
++---------------------------------------------------+
+| Block 1:                                           |
+|   numArgs: varint (e.g., 1)                       |
+|   argTypeIndices[0]: varint -> Token              |
+|   numOps: varint (e.g., 2)                        |
+|   operation[0]: ...                               |
+|   operation[1]: ...                               |
++---------------------------------------------------+
 ```
 
-The `addf` operation's operands are encoded as `[0, 1]` and it produces one result (index 2). The `mulf` operation's operands are `[2, 0]` and produces index 3.
+### Common Operation Examples
 
-### 4.6.6 Opcode Table
+#### Arithmetic Operations (e.g., cuda_tile.add)
 
-Opcodes are assigned as varint values. The complete opcode table is defined by the Tile IR specification. Core opcodes include:
-
-| Opcode | Operation | Operand Pattern | Results |
-|--------|-----------|-----------------|---------|
-| 0x01 | `module` | 0 operands, 1 region | 0 |
-| 0x02 | `entry` | variadic (params) | 0 |
-| 0x03 | `return` | variadic (values) | 0 |
-| 0x04 | `constant` | 0 operands | 1 |
-| 0x05 | `broadcast` | 1 operand | 1 |
-| 0x06 | `cat` | variadic | 1 |
-| 0x07 | `extract` | 1 operand + index attrs | 1 |
-| 0x08 | `get_global` | 0 operands | 1 |
-| 0x09 | `iota` | 0 operands | 1 |
-| 0x0A | `offset` | 2 operands | 1 |
-| 0x0B | `permute` | 1 operand | 1 |
-| 0x0C | `reduce` | 2 operands + 1 region | 1 |
-| 0x0D | `reshape` | 1 operand | 1 |
-| 0x0E | `scan` | 2 operands + 1 region | 1 |
-| 0x0F | `select` | 3 operands | 1 |
-| 0x10 | `for` | AttrSized segments + 1 region | variadic |
-| 0x11 | `if` | 1 condition + 2 regions | variadic |
-| 0x12 | `loop` | 0 operands + 1 region | variadic |
-| 0x13 | `break` | variadic | 0 |
-| 0x14 | `continue` | variadic | 0 |
-| 0x15 | `yield` | variadic | 0 |
-| 0x16 | `assert` | 1 operand | 0 |
-| 0x20 | `addf` | 2 operands | 1 |
-| 0x21 | `subf` | 2 operands | 1 |
-| 0x22 | `mulf` | 2 operands | 1 |
-| 0x23 | `divf` | 2 operands | 1 |
-| 0x24 | `mmaf` | 3 operands | 1 |
-| 0x25 | `negf` | 1 operand | 1 |
-| 0x26 | `absf` | 1 operand | 1 |
-| 0x27 | `sqrt` | 1 operand | 1 |
-| 0x28 | `rsqrt` | 1 operand | 1 |
-| 0x29 | `fma` | 3 operands | 1 |
-| 0x30 | `addi` | 2 operands | 1 |
-| 0x31 | `subi` | 2 operands | 1 |
-| 0x32 | `muli` | 2 operands | 1 |
-| 0x33 | `divi` | 2 operands | 1 |
-| 0x34 | `mmai` | 3 operands | 1 |
-| 0x40 | `load_ptr_tko` | 1 operand | 2 (value + token) |
-| 0x41 | `store_ptr_tko` | 2 operands | 1 (token) |
-| 0x42 | `make_token` | 0 operands | 1 (token) |
-| 0x43 | `join_tokens` | variadic (tokens) | 1 (token) |
-| 0x50 | `make_tensor_view` | 1 + variadic | 1 |
-| 0x51 | `make_partition_view` | 1 operand | 1 |
-| 0x52 | `load_view_tko` | 2 operands | 2 (value + token) |
-| 0x53 | `store_view_tko` | 3 operands | 1 (token) |
-| 0x54 | `get_index_space_shape` | 1 operand | 1 |
-| 0x55 | `get_tensor_shape` | 1 operand | 1 |
-| 0x60 | `bitcast` | 1 operand | 1 |
-| 0x61 | `exti` | 1 operand | 1 |
-| 0x62 | `trunci` | 1 operand | 1 |
-| 0x63 | `ftof` | 1 operand | 1 |
-| 0x64 | `ftoi` | 1 operand | 1 |
-| 0x65 | `itof` | 1 operand | 1 |
-| 0x66 | `int_to_ptr` | 1 operand | 1 |
-| 0x67 | `ptr_to_int` | 1 operand | 1 |
-| 0x68 | `ptr_to_ptr` | 1 operand | 1 |
-| 0x70 | `atomic_cas_tko` | 3 operands | 2 (value + token) |
-| 0x71 | `atomic_rmw_tko` | 3 operands | 2 (value + token) |
-
----
-
-## 4.7 Section Ordering
-
-### 4.7.1 Default Writing Order
-
-Serializers should write sections in the following order to enable efficient lazy loading:
-
-```
-1. String Section (0x01)       -- Must be first; other sections reference it
-2. Type Section (0x05)         -- Second; function table references types
-3. Function Table Section (0x02) -- Third; references both strings and types
-4. Constant Data Section (0x04) -- Fourth; referenced by attributes and globals
-5. Global Section (0x06)       -- Fifth; references strings, types, constants
-6. Debug Section (0x03)        -- Last; optional and only needed for debugging
+```c
+opcode : byte                     // e.g., 0x15 for add
+locationIndex : varint            // Debug location
+lhs : varint                      // Left operand index
+rhs : varint                      // Right operand index
+// Result type inferred from operands
 ```
 
-This ordering allows a consumer to perform the following incremental loading strategy:
-
-1. Read the String Section and build the string table.
-2. Read the Type Section to understand all types in the module.
-3. Read the Function Table to identify kernel entry points and their signatures.
-4. Optionally stop here if only metadata is needed (e.g., for reflection or linking).
-5. Read Constant Data and Globals as needed for full module loading.
-6. Read Debug Section only when debug information is requested.
-
-### 4.7.2 Reader Flexibility
-
-The Tile IR format does **not** require sections to appear in the default order. A conforming deserializer must accept sections in any order. To handle arbitrary ordering, the deserializer uses a two-pass strategy:
-
-**Pass 1 (Scan):** Read all section headers, recording the byte offset and length of each section without parsing the section data. This builds a section map.
-
-**Pass 2 (Parse):** Parse sections in dependency order using the section map. If a section references data from another section that has not yet been parsed (e.g., the Function Table references the Type Section), the parser defers resolution until the referenced section is available.
-
-This design accommodates:
-- Tools that write sections in arbitrary order.
-- Files that have been concatenated or post-processed.
-- Future section types with different dependency patterns.
-
-### 4.7.3 Section Dependencies
-
-The dependency graph between sections is:
+**Example: Encoding `c = add(a, b)` with no debug info**
 
 ```
-String Section <------+
-    |                  |
-    v                  |
-Type Section           |
-    |                  |
-    v                  |
-Function Table --------+
-    |
-    v
-Constant Data Section
-    |
-    v
-Global Section
-    |
-    v
-Debug Section ----> String Section
+Hex bytes: 0x15 0x00 0x00 0x01
+// opcode=0x15 (add), locationIndex=0 (no debug), lhs=0 (operand 0), rhs=1 (operand 1)
+// Result is implicitly assigned value index 2
 ```
 
-In this graph, an arrow from A to B means "B depends on A" (B references data within A). The String Section has no dependencies and must be parsable in isolation. The Debug Section depends only on the String Section for file path and name strings.
+#### Memory Operations (e.g., cuda_tile.load)
 
-### 4.7.4 Duplicate Sections
-
-A Tile IR bytecode file must not contain more than one section of any given section ID. If a deserializer encounters a duplicate section ID, it must reject the file as malformed.
-
-### 4.7.5 Missing Required Sections
-
-If a required section (String, Type, or Function Table) is absent, the deserializer must reject the file. The absence of an optional section (Debug, Constant Data, Global) is not an error; the module simply has no debug info, no inline constants, or no globals, respectively.
-
----
-
-## 4.8 Encoding Examples
-
-This section provides complete encoding examples for small Tile IR programs, demonstrating how the binary format comes together.
-
-### 4.8.1 Minimal Module
-
-Consider the simplest possible Tile IR module:
-
-```
-cuda_tile.module @minimal {
-    entry @noop_kernel() {
-        return
-    }
-}
+```c
+opcode : byte                     // e.g., 0x20 for load
+locationIndex : varint            // Debug location
+resultType : varint               // Type index for loaded value
+address : varint                  // Address operand index
+// Optional attributes encoded via flags
 ```
 
-The binary encoding (in hexadecimal) would be:
+**Example: Encoding a load from an address with cache hints**
 
 ```
-Magic:
-  7F 54 69 6C 65 49 52 00                // \x7FTileIR\x00
-
-Version:
-  0D 02 00 00                            // major=13, minor=2, tag=0
-
---- String Section (ID 0x01) ---
-  01                                      // idAndIsAligned: id=1, align=0
-  12                                      // length = 18 bytes
-  03                                      // 3 strings
-  06 6D 69 6E 69 6D 61 6C                 // "minimal" (7 bytes, varint 0x06 + data)
-  0C 6E 6F 6F 70 5F 6B 65 72 6E 65 6C 0A  // "noop_kernel" (11 bytes)
-
---- Type Section (ID 0x05) ---
-  05                                      // idAndIsAligned: id=5, align=0
-  03                                      // length = 3 bytes
-  00                                      // 0 type definitions
-  01                                      // op_stream_length = 1
-  03                                      // opcode = return (0x03)
-                                           // no flags (0x00 implied by compact encoding)
-
---- Function Table Section (ID 0x02) ---
-  02                                      // idAndIsAligned: id=2, align=0
-  0B                                      // length = 11 bytes
-  01                                      // 1 function entry
-  01                                      // name_index = 1 ("noop_kernel")
-  01                                      // entry_flag = kernel
-  00                                      // num_params = 0
-  00                                      // body_offset = 0
-  01                                      // body_length = 1
+Hex bytes: 0x20 0x00 0x07 0x02 0x01 ...
+// opcode=0x20 (load), locationIndex=0, resultType=7 (F32 Tile),
+// address=2 (operand 2), flags=0x01 (has optional cache hint)
 ```
 
-### 4.8.2 Vector Add Kernel (128 elements)
+#### Control Flow Operations (e.g., cuda_tile.if)
 
-```
-cuda_tile.module @vec_add {
-    entry @vec_add_128(
-        %a_ptr: tile<ptr<f32>>,
-        %b_ptr: tile<ptr<f32>>,
-        %c_ptr: tile<ptr<f32>>
-    ) {
-        %offset = iota : tile<128xi32>
-        %a_base = reshape %a_ptr : tile<ptr<f32>> -> tile<1xptr<f32>>
-        %a_ptrs = broadcast %a_base : tile<1xptr<f32>> -> tile<128xptr<f32>>
-        %a_tensor = offset %a_ptrs, %offset : tile<128xptr<f32>>, tile<128xi32> -> tile<128xptr<f32>>
-        %a_val, %t1 = load_ptr_tko weak %a_tensor : tile<128xptr<f32>> -> tile<128xf32>, token
-        %b_val, %t2 = load_ptr_tko weak %b_tensor : ... -> tile<128xf32>, token
-        %c_val = addf %a_val, %b_val rounding<nearest_even> : tile<128xf32>
-        store_ptr_tko weak %c_tensor, %c_val : ... -> token
-        return
-    }
-}
+```c
+opcode : byte                     // e.g., 0x30 for if
+locationIndex : varint            // Debug location
+condition : varint                // Condition operand index
+numRegions : varint               // Always 2 for if (then, else)
+thenRegion : region               // Then block
+elseRegion : region               // Else block (may be empty)
 ```
 
-The type table for this module would contain:
-
-| Index | Type |
-|-------|------|
-| 0 | F32 (tag 0x07) |
-| 1 | I32 (tag 0x03) |
-| 2 | ptr\<f32\> (tag 0x0C, element=0) |
-| 3 | tile\<ptr\<f32\>\> (tag 0x0D, rank=0, element=2) |
-| 4 | tile\<1xptr\<f32\>\> (tag 0x0D, rank=1, shape=[1], element=2) |
-| 5 | tile\<128xptr\<f32\>\> (tag 0x0D, rank=1, shape=[128], element=2) |
-| 6 | tile\<128xi32\> (tag 0x0D, rank=1, shape=[128], element=1) |
-| 7 | tile\<128xf32\> (tag 0x0D, rank=1, shape=[128], element=0) |
-| 8 | token (tag 0x11) |
-
-The operation stream for the kernel body encodes each operation with its opcode, flags, result types, attributes, and operands.
-
-### 4.8.3 VarInt Encoding Examples for Common Values
-
-This table shows the byte-level VarInt encoding for values commonly encountered in Tile IR bytecode:
-
-| Value | Description | VarInt Bytes | Length |
-|-------|-------------|--------------|--------|
-| 0 | Empty count | `00` | 1 |
-| 1 | Single item | `01` | 1 |
-| 2 | Pair | `02` | 1 |
-| 3 | Triple | `03` | 1 |
-| 7 | Element type count | `07` | 1 |
-| 8 | Pointer tag + F32 | `08` | 1 |
-| 13 | Version major | `0D` | 1 |
-| 16 | F8E4M3FN tag | `10` | 1 |
-| 32 | Small tile dimension | `20` | 1 |
-| 64 | Common MMA dimension | `40` | 1 |
-| 128 | Vector width | `80 80` | 2 |
-| 256 | Extended dimension | `81 00` | 2 |
-| 1024 | Block size | `88 00` | 2 |
-| 4096 | Large tile | `90 00` | 2 |
-| 65536 | Large buffer | `C0 00 00` | 3 |
-| 0xFFFFFFFFFFFFFFFF | Dynamic sentinel | `FF FF FF FF FF FF FF FF FF` | 9 |
-
-### 4.8.4 Section Header Examples
-
-**Unaligned String Section with 42 bytes of data:**
+**Example: Encoding an if-then-else**
 
 ```
-01                                      // idAndIsAligned: section_id=1 (String), align=0
-2A                                      // length = 42 (varint)
-<42 bytes of string data>
+Hex bytes:
+  0x30              // opcode (if)
+  0x00              // locationIndex (no debug)
+  0x05              // condition = operand 5
+  0x02              // numRegions = 2 (then + else)
+  // thenRegion:
+    0x01            // numBlocks = 1
+    0x00            // numArgs = 0
+    0x03            // numOps = 3
+    ...             // operations
+  // elseRegion:
+    0x01            // numBlocks = 1
+    0x00            // numArgs = 0
+    0x00            // numOps = 0 (empty else)
 ```
 
-**Aligned Type Section, 8-byte alignment, 1024 bytes of data:**
+#### Function Call Operation (e.g., cuda_tile.call)
 
-```
-85                                      // idAndIsAligned: section_id=5 (Type), align=1
-                                        // Binary: 1_0000101 = 0x85
-80 08                                   // length = 1024 (varint)
-08                                      // alignment = 8 (varint)
-CB CB CB                                // Padding bytes to reach 8-byte alignment
-<1024 bytes of type and operation data>
-```
-
-**Debug Section with 0 bytes (empty debug info):**
-
-```
-03                                      // idAndIsAligned: section_id=3 (Debug), align=0
-00                                      // length = 0
+```c
+opcode : byte                     // Call opcode
+locationIndex : varint            // Debug location
+calleeIndex : varint              // Index into function table
+numArgs : varint                  // Number of arguments
+argIndices : varint[numArgs]      // Argument operand indices
+// Result types encoded for variadic results
+numResults : varint               // Number of results
+resultTypeIndices : varint[numResults] // Result type indices
 ```
 
----
+#### Loop Operation (e.g., cuda_tile.for)
 
-## Appendix A: Summary of Byte Patterns
-
-### A.1 Magic Number
-
-```
-7F 54 69 6C 65 49 52 00
-```
-
-### A.2 Section ID and Alignment Byte
-
-```
-Bit 7:   0 = no alignment, 1 = has alignment
-Bits 6-0: section ID (0x01 through 0x06 defined)
-```
-
-### A.3 Padding Byte
-
-```
-CB = 0xCB (203 decimal)
+```c
+opcode : byte                     // For loop opcode
+locationIndex : varint            // Debug location
+lowerBound : varint               // Lower bound operand index
+upperBound : varint               // Upper bound operand index
+step : varint                     // Step operand index
+// Optional initArgs (token-ordered)
+flags : varint                    // Flags for optional fields
+numInitArgs : varint?             // Present if init args flag set
+initArgIndices : varint[]?        // Present if init args flag set
+// Loop body region
+numRegions : varint               // Always 1
+bodyRegion : region               // Loop body
+// Result types
+numResults : varint               // Number of result values
+resultTypeIndices : varint[]      // Result type indices
 ```
 
-### A.4 Dynamic Dimension Sentinel
+## Section Ordering
+
+Tile IR bytecode readers can handle sections in any order due to their flexible parsing design. The reader first discovers all sections and stores their payloads, then processes them in dependency order.
+
+**Default Writing Order**
+
+Writers typically emit sections in the following order:
+
+1. Header (magic number + version)
+2. Global Section (Section ID: 0x06) - Optional, only if globals present
+3. Function Table Section (Section ID: 0x02) - Required
+4. Constant Data Section (Section ID: 0x04) - Optional, only if constants present
+5. Debug Section (Section ID: 0x03) - Optional
+6. Type Section (Section ID: 0x05) - Required
+7. String Section (Section ID: 0x01) - Required
+8. End-of-Bytecode Marker (0x00) - Required
+
+However, readers are not dependent on this order and can process sections regardless of their arrangement in the file. This flexibility enables future optimizations and different writing strategies.
+
+**Section ID Summary:**
+
+| Section ID | Section Name | Required | Description |
+|-----------|-------------|----------|-------------|
+| 0x00 | End-of-Bytecode | Yes | Marks end of bytecode stream |
+| 0x01 | String Section | Yes | All textual names and strings |
+| 0x02 | Function Table | Yes | Functions and their instruction bodies |
+| 0x03 | Debug Section | No | Debug information |
+| 0x04 | Constant Data | No | Large constants (tensors, arrays) |
+| 0x05 | Type Section | Yes | Type definitions |
+| 0x06 | Global Section | No | Module-level global variables |
+
+**Reader Implementation**
+
+The reader implements this flexibility by:
+
+- **Discovery Phase:** Reads all section headers and stores their payloads in memory
+- **Processing Phase:** Processes sections in dependency order regardless of file order
+- **Lazy Resolution:** Resolves forward references (e.g., types, strings) on-demand
+
+This design allows for efficient random access to any section and supports future file format optimizations.
+
+**Section Dependency Graph**
 
 ```
-FF FF FF FF FF FF FF FF FF  (9 bytes, varint for UINT64_MAX)
+                    +-----------------+
+                    |  String Section |
+                    |    (0x01)       |
+                    +--------+--------+
+                             |
+              +--------------+--------------+
+              |              |              |
+              v              v              v
+     +--------+----+ +------+------+ +-----+-------+
+     | Type Section| |Debug Section| |Global Section|
+     |   (0x05)    | |   (0x03)    | |    (0x06)    |
+     +------+------+ +------+------+ +------+-------+
+             |              |              |
+             v              |              v
+     +-------+--------+     |     +-------+--------+
+     |Constant Section|     |     |Constant Section|
+     |    (0x04)      |     |     |    (0x04)      |
+     +-------+--------+     |     +-------+--------+
+             |              |              |
+             +-------+------+--------------+
+                     |
+                     v
+            +--------+--------+
+            |Function Table   |
+            |    (0x02)       |
+            +-----------------+
+
+Arrows indicate "references" or "depends on":
+  - Function table references: types, strings, constants, debug info
+  - Global section references: types, strings, constants
+  - Debug section references: strings
+  - Type section references: strings (for named types)
+  - All sections may reference the string section
 ```
 
-### A.5 Boolean Values
+**Processing Order (Dependency Resolution):**
 
 ```
-0x00 = false
-0x01 = true
+1. Load String Section    (no dependencies)
+2. Load Type Section      (depends on: strings)
+3. Load Constant Section  (depends on: strings)
+4. Load Debug Section     (depends on: strings)
+5. Load Global Section    (depends on: strings, types, constants)
+6. Load Function Table    (depends on: strings, types, constants, debug)
 ```
-
----
-
-## Appendix B: Grammar Summary
-
-This appendix provides a complete grammar for the binary format in BNF-like notation.
-
-```
-bytecode       ::= magic version section*
-magic          ::= "\x7FTileIR\x00"
-version        ::= uint8_major uint8_minor uint16_tag
-section        ::= section_header section_padding? section_data
-section_header ::= id_and_align_byte length_varint alignment_varint?
-id_and_align_byte ::= byte   // bit 7 = has_alignment, bits 6-0 = section_id
-length_varint  ::= varint    // byte length of section_data
-alignment_varint ::= varint  // present only if has_alignment bit is set
-section_padding ::= byte+    // all bytes must be 0xCB
-section_data   ::= byte{length}
-
-// Section-specific data
-string_section_data     ::= varint_count string_entry*
-string_entry            ::= varint_length byte{length}
-function_table_data     ::= varint_count function_entry*
-function_entry          ::= varint_name_index byte_entry_flag varint_num_params
-                             type_ref{num_params} varint_body_offset varint_body_length
-type_section_data       ::= varint_type_count type_def* varint_opstream_length byte{opstream_length}
-global_section_data     ::= varint_count global_entry*
-global_entry            ::= varint_name_index varint_type_ref byte_is_mutable initializer?
-constant_data_section   ::= varint_count constant_block*
-constant_block          ::= varint_alignment varint_data_length padding byte{data_length}
-debug_section_data      ::= varint_version compile_unit* file_table location_table
-
-// Type definitions
-type_def       ::= type_tag payload?
-type_tag       ::= byte   // 0x00 - 0x11
-payload        ::= element_type_payload     // for 0x00-0x0B: empty
-               |  pointer_payload           // for 0x0C: varint element_type_ref
-               |  tile_payload              // for 0x0D: varint rank varint{rank} varint element_type_ref
-               |  tensor_view_payload       // for 0x0E: varint rank varint{rank} varint element_ref varint stride_count varint{stride_count}
-               |  partition_view_payload    // for 0x0F: varint tile_rank varint{tile_rank} varint tv_ref varint dim_count varint{dim_count}
-               |  function_payload          // for 0x10: varint num_params varint{num_params} varint num_results varint{num_results}
-
-// Attributes
-attribute      ::= attr_tag attr_payload?
-attr_tag       ::= byte   // 0x01 - 0x0C
-attr_payload   ::= integer_attr_payload
-               |  float_attr_payload
-               |  bool_attr_payload
-               |  type_attr_payload
-               |  string_attr_payload
-               |  array_attr_payload
-               |  dense_elements_payload
-               |  div_by_payload
-               |  same_elements_payload
-               |  dictionary_attr_payload
-               |  optimization_hints_payload
-               |  empty_payload
-
-// Operations
-operation      ::= varint_opcode varint_location_index byte_flags
-                   result_types? attributes? operands regions?
-result_types   ::= varint_count varint{count}   // present if has_results flag
-attributes     ::= varint_count attr_entry{count}  // present if has_attrs flag
-attr_entry     ::= varint_name_ref attribute
-operands       ::= fixed_operands | variadic_operands | attr_sized_operands
-regions        ::= varint_count region{count}    // present if has_regions flag
-region         ::= varint_num_blocks block{num_blocks}
-block          ::= varint_num_args varint{num_args} varint_num_ops operation{num_ops}
-```
-
----
-
-## Appendix C: Version History
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 13.0 | 2025-06 | Initial public release of Tile IR binary format |
-| 13.1 | 2025-10 | Added F8E4M3FN and F8E5M2 type tags (0x0A, 0x0B). Added atomics sections. Enhanced debug section with inline scope support. |
-| 13.2 | 2026-03 | Added OptimizationHints attribute (0x0B). NonNegative attribute (0x0C). PartitionView dim_map encoding. Expanded opcode range for view operations. |
-
----
-
-*End of Chapter 4: Binary Format and Bytecode*

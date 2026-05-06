@@ -1,686 +1,517 @@
-# Chapter 10: Stability and Compatibility
+# Stability
 
-## Table of Contents
+Tile IR provides a set of guarantees regarding portability, stability, and compatibility to ensure predictable behavior across different platforms, toolchains, and hardware targets. These guarantees are documented below.
 
-1. [Definitions](#1-definitions)
-2. [Platform and Compatibility Guarantees](#2-platform-and-compatibility-guarantees)
-3. [Supported Architectures](#3-supported-architectures)
-4. [Feature Availability and Emulation](#4-feature-availability-and-emulation)
-5. [Hardware Support Matrix](#5-hardware-support-matrix)
-6. [Emulation of Unsupported Operations](#6-emulation-of-unsupported-operations)
-7. [Execution and Numerical Guarantees](#7-execution-and-numerical-guarantees)
-8. [Release Notes 13.2](#8-release-notes-132)
-9. [Known Issues](#9-known-issues)
+## Definitions
 
----
+The following terms are used throughout the stability and compatibility documentation. Understanding these definitions is essential for interpreting the guarantees Tile IR provides.
 
-## 1. Definitions
+- **Stability:** An unchanging property of a program or interface. A stable interface is one that will not change incompatibly across versions. For example, the Tile IR bytecode format is stable: bytecode produced by an older compiler can be read by a newer driver.
 
-The following terms are used throughout this chapter with precise meanings. Understanding
-these definitions is critical for interpreting the guarantees that Tile IR provides.
+- **Portability:** A property of a program to be transferred to a different hardware or toolchain version with the same behavior. A portable program produces correct results regardless of the target architecture. Portability does not guarantee identical numerical results across targets, only correct semantic behavior.
 
-### Stability
+- **Compatibility:** A property of a program to be executed on a different platform or toolchain with the same behavior. Tile IR distinguishes between forward compatibility (old programs on new toolchains) and backward compatibility (new programs on old toolchains, with caveats).
 
-**Stability** refers to the property that a Tile IR program, once compiled to bytecode,
-produces the same observable results across different versions of the Tile IR toolchain
-(compiler, runtime, driver) and across different conforming implementations. There are
-several categories of stability:
+- **Toolchain:** Either the compiler and CTK (CUDA Toolkit) version used to perform ahead-of-time compilation, or the driver and CTK version used to perform JIT compilation of a Tile IR program. Different toolchain versions may produce different but semantically equivalent programs.
 
-| Stability Category | Scope | Guarantee |
-|--------------------|-------|-----------|
-| **Bytecode stability** | Binary format | A bytecode file produced by version N can be loaded and executed by any conforming driver version >= N |
-| **Semantic stability** | Program behavior | A conforming program produces the same result for the same input on the same hardware with the same toolchain version |
-| **API stability** | Compiler interface | The textual and binary representations of Tile IR are backward-compatible within a major version |
+- **Target:** The specific GPU architecture for which a Tile IR program is compiled (e.g., sm_80 for NVIDIA A100). The target determines which operations and data types are natively supported.
 
-### Portability
+- **Feature:** A capability of the Tile IR language or runtime, such as a specific data type, operation, or optimization. Features may be target-specific (only available on certain architectures) or universal (available everywhere).
 
-**Portability** refers to the ability of a Tile IR program to execute correctly across
-different hardware architectures and GPU compute capabilities. A program is **portable**
-if it can be loaded, compiled, and executed on any conforming target without
-modification.
+- **Lowering:** The process of converting a Tile IR operation into one or more operations that are supported by the target hardware. This may involve emulation when the target lacks native support.
 
-Tile IR distinguishes two levels of portability:
+- **Emulation:** A software implementation of a feature that is not natively supported by the target hardware. Emulation preserves semantics but may have different performance characteristics.
 
-- **Full portability**: The program uses only operations and types that are supported
-  natively on all target architectures. No emulation is required.
+## Platform & Compatibility Guarantees
 
-- **Portable with emulation**: The program may use operations not natively supported
-  on all architectures, but the compiler can emulate them using available primitives.
-  The program remains functionally correct but may have reduced performance.
+### Bytecode Stability
 
-### Compatibility
+The Tile IR bytecode format ensures that programs can be interpreted and loaded by all conforming drivers (see Binary Format). The bytecode format is designed to be stable across versions, providing the following guarantees:
 
-**Compatibility** refers to the relationship between Tile IR and the broader CUDA
-platform, including CUDA driver versions, CUDA runtime versions, and GPU driver
-support. Tile IR inherits CUDA's compatibility model and extends it with Tile IR-
-specific guarantees.
+**Backward Compatibility (old bytecode on new driver):**
+- A new driver can load and execute bytecode produced by any older Tile IR compiler.
+- All previously defined opcodes, types, sections, and attributes remain supported.
+- The semantics of existing operations are preserved across versions.
 
-### Toolchain
+**Forward Compatibility (new bytecode on old driver):**
+- An old driver encountering newer bytecode will skip unknown optional sections gracefully.
+- The old driver will fail with a clear error message if it encounters unknown required features.
+- The old driver will only process bytecode up to its supported version.
 
-The **toolchain** encompasses all software components involved in translating a Tile IR
-program from source (or bytecode) to execution on a GPU:
+**Version Targeting:**
+- A compiler can target a specific older Tile IR version by restricting output to features available in that version.
+- If a program uses features unavailable in the target version, the compiler must diagnose the incompatibility.
 
-| Component | Description |
-|-----------|-------------|
-| **Tile IR Compiler** | Translates Tile IR bytecode to PTX or native GPU code. Available as part of the CUDA driver (JIT) and as a standalone tool. |
-| **CUDA Driver** | The GPU driver that manages device memory, kernel launches, and the JIT compilation pipeline. |
-| **CUDA Runtime** | The user-space runtime library (libcudart) that provides host-side API for launching kernels. |
-| **PTX Compiler** | The PTX-to-SASS compiler (part of the CUDA driver) that produces native GPU instructions. |
-| **GPU Hardware** | The physical GPU device with a specific compute capability (e.g., sm_80, sm_89). |
+### Program Portability
 
----
+A program conforming to Tile IR vX.Y is syntactically portable to any platform that advertises support for vX.Y or newer.
 
-## 2. Platform and Compatibility Guarantees
+Portability does not imply availability of target-specific features on all targets: if a program uses a feature that the selected hardware target does not support, the compiler will either:
 
-Tile IR provides the following platform and compatibility guarantees for conforming
-programs.
+- **Diagnose** the incompatibility: The compiler reports an error indicating that the feature is not supported on the selected target.
+- **Apply a lowering** that preserves the semantics defined by the specification: The compiler replaces the unsupported operation with an equivalent sequence of supported operations, potentially at the cost of performance.
 
-### 2.1 Bytecode Stability
-
-**Guarantee**: A Tile IR bytecode file produced by a conforming toolchain version N can
-be loaded, validated, and executed by any conforming toolchain version M where M >= N
-within the same major version.
-
-**Implications**:
-
-- Bytecode files are **forward-compatible**: newer drivers can always load older
-  bytecode.
-
-- Bytecode files are **NOT backward-compatible**: an older driver may not be able to
-  load bytecode produced by a newer toolchain if the bytecode uses features introduced
-  after the older driver was released.
-
-- The bytecode format includes a version header (`major.minor.tag`) that the loader
-  checks before attempting to parse. If the version is newer than the loader supports,
-  it rejects the file with a descriptive error.
-
-**Bytecode Versioning**:
+**Portability Example:**
 
 ```
-bytecode_header {
-    magic:   "\x7FTileIR\x00"    // 8 bytes, fixed
-    version: {
-        major: u16,               // Breaking changes only
-        minor: u16,               // New features, backward compatible
-        tag:   u16                // Patch/bugfix level
-    }
-}
+// This program uses f8E4M3FN (FP8) data types:
+%result = cuda_tile.add %a, %b : tensor<128xf8E4M3FN>
+
+// On Blackwell (sm_100): Native support, direct hardware instructions.
+// On Ampere (sm_80): No native FP8 support. The compiler will either:
+//   - Emulate using F16/F32 instructions, OR
+//   - Diagnose an error if emulation is not available for this operation.
 ```
 
-- **Major version change**: Indicates breaking changes. Old bytecode may not load.
-- **Minor version change**: New opcodes, types, or sections added. Old bytecode
-  continues to work.
-- **Tag change**: Bug fixes only. No format changes.
+### CUDA Compatibility
 
-### 2.2 Program Portability
+Tile IR respects the CUDA platform's forward and backward minor-version compatibility rules for toolchain and driver integration (see CUDA Minor Version Compatibility Rules).
 
-**Guarantee**: A conforming Tile IR program is **syntactically portable**: it can be
-parsed, validated, and loaded by any conforming Tile IR implementation regardless of
-target architecture.
+**CUDA Compatibility Rules:**
 
-**Portable Execution**:
+| Compatibility Type | Rule |
+|---|---|
+| Forward (new driver, old CTK) | Tile IR programs compiled with older CTK versions can run on newer drivers |
+| Backward (old driver, new CTK) | Limited; depends on CUDA minor version compatibility |
+| Minor version compatibility | Within a major CUDA version, newer drivers support programs compiled with older minor versions |
 
-Whether a program can also be **executed** on a given target depends on the operations
-and types it uses:
-
-1. If all operations and types in the program are natively supported on the target
-   architecture, the program executes natively at full performance.
-
-2. If some operations or types are not natively supported, the Tile IR compiler
-   attempts to **emulate** them using available primitives. See Section 4 for details.
-
-3. If emulation is not possible (e.g., an atomic operation on an unsupported data
-   type with no software fallback), the compiler rejects the program with a
-   diagnostic error.
-
-**Compiler Fallback Behavior**:
+**Example: CUDA Version Compatibility**
 
 ```
-Program --> [Load & Validate] --> [Select Target] --> [Check Features]
-                                                         |
-                                       +------------------+------------------+
-                                       |                  |                  |
-                                  [Native]           [Emulate]          [Reject]
-                                  (fastest)     (correct, slower)    (error message)
+Tile IR program compiled with CUDA 13.1:
+  - Runs on CUDA 13.2 driver: YES (forward compatible)
+  - Runs on CUDA 13.0 driver: MAYBE (depends on features used)
+  - Runs on CUDA 12.x driver: NO (major version mismatch)
 ```
 
-### 2.3 CUDA Compatibility
+## Supported Architectures
 
-Tile IR respects CUDA's forward and backward compatibility model:
+Tile IR bytecode programs are portable across all supported architectures. A single bytecode file can be compiled to any supported target or JIT-compiled by the driver at load time.
 
-- **CUDA Forward Compatibility**: A Tile IR program compiled for compute capability
-  X can run on a GPU with compute capability Y where Y >= X, provided Y is in the
-  same architecture family or a later family.
+For ahead-of-time compilation, the target architecture is specified using the `--gpu-name` flag with a supported NVIDIA GPU architecture compute capability (CC) number (e.g., `tileiras --gpu-name sm_80`). For JIT compilation, the driver automatically selects the architecture of the target device.
 
-- **CUDA Minor Version Compatibility**: Within a major CUDA version, Tile IR programs
-  maintain compatibility. A program compiled with CUDA 13.x can run on any CUDA 13.y
-  driver where y >= x.
+### Supported Architectures Table
 
-- **CUDA Enhanced Compatibility**: When the CUDA enhanced compatibility driver is
-  installed, Tile IR programs can target newer GPU architectures on older CUDA driver
-  versions, as long as the driver supports the minimum required CUDA version for that
-  architecture.
+| Family | Compute Capability | Example GPUs | Tile IR Support Since | Key Features |
+|--------|-------------------|--------------|----------------------|--------------|
+| Ampere | `sm_80` | A100, A30 | Tile IR 13.2 | Third-gen Tensor Cores, BF16, TF32 |
+| Ampere | `sm_86` | A40, RTX 3090, RTX 3080 | Tile IR 13.2 | Third-gen Tensor Cores, BF16, TF32 |
+| Ampere | `sm_87` | Jetson Orin NX | Tile IR 13.2 | Edge variant of Ampere |
+| Ampere | `sm_88` | Jetson AGX Orin | Tile IR 13.2 | Edge variant of Ampere |
+| Ada | `sm_89` | L40, L40S, RTX 4090, RTX 4080 | Tile IR 13.2 | Fourth-gen Tensor Cores, DPX |
+| Hopper | `sm_90` | H100, H200 | Not supported (13.2) | Planned for future release |
+| Blackwell | `sm_100` | B200, B100 | Tile IR 13.1 | Fifth-gen Tensor Cores, FP8 native |
+| Blackwell | `sm_120` | RTX 5090, RTX PRO 6000 | Tile IR 13.1 | Consumer Blackwell, FP8 native |
 
-**Important Note**: Tile IR version 13.2 requires CUDA 13.0 or later. Programs that
-use features introduced in 13.2 require CUDA 13.2 or later on the target system.
+> **Note:** Hopper (`sm_90`) is not supported in the 13.2 release. Support is planned for a future release.
 
----
+### Architecture Details
 
-## 3. Supported Architectures
+**Ampere Architecture (sm_80, sm_86, sm_87, sm_88):**
 
-Tile IR 13.2 supports the following GPU architectures and compute capabilities:
+The Ampere architecture introduced third-generation Tensor Cores with support for BF16 and TF32 data types. Key characteristics:
 
-### Architecture Support Table
+- Tensor Core operations: MMA with mixed precision (F16, BF16, TF32, INT8, INT4, binary)
+- Shared memory: Up to 164 KB per SM (configurable)
+- L2 cache: Up to 40 MB (A100)
+- Async copy from global to shared memory
+- Cooperative groups support
 
-| Architecture Family | Compute Capability | Example GPUs | Supported Since | Native Support Level |
-|---------------------|--------------------|---------------|-----------------|---------------------|
-| **Ampere** | `sm_80` | NVIDIA A100, A30 | 13.2 | Full |
-| **Ampere** | `sm_86` | NVIDIA A40, RTX 3090, RTX 3080 | 13.2 | Full |
-| **Ampere** | `sm_87` | NVIDIA A10, A16 | 13.2 | Full |
-| **Ampere** | `sm_88` | NVIDIA A2 | 13.2 | Full |
-| **Ada Lovelace** | `sm_89` | NVIDIA L40, L40S, RTX 4090, RTX 4080 | 13.2 | Full |
-| **Blackwell** | `sm_100` | NVIDIA B200, B100 | 13.1 | Full |
-| **Blackwell** | `sm_120` | NVIDIA RTX 5090, RTX 5080 | 13.1 | Full |
+**Ada Architecture (sm_89):**
 
-### Architecture NOT Supported in 13.2
+The Ada Lovelace architecture provides fourth-generation Tensor Cores with improved throughput. Key characteristics:
 
-| Architecture Family | Compute Capability | Example GPUs | Status |
-|---------------------|--------------------|---------------|--------|
-| **Hopper** | `sm_90` | NVIDIA H100, H200 | **Not supported in 13.2** |
+- Enhanced Tensor Core operations with improved FP16 and BF16 performance
+- DPX instructions for accelerated dynamic programming
+- Higher clock speeds compared to Ampere
+- Improved power efficiency
 
-**Note on Hopper (sm_90)**: Hopper architecture GPUs are not supported in Tile IR 13.2.
-Programs targeting `sm_90` will be rejected by the compiler. Support for Hopper is
-planned for a future release. Users with H100/H200 hardware should use PTX or CUDA C++
-for GPU programming until Tile IR support is available.
+**Blackwell Architecture (sm_100, sm_120):**
 
-### Compute Capability Selection
+The Blackwell architecture introduces fifth-generation Tensor Cores with native FP8 support. Key characteristics:
 
-The Tile IR compiler accepts a target compute capability via the `-arch` flag or
-equivalent API:
+- Native FP8 (E4M3FN and E5M2) data type support in Tensor Cores
+- Second-generation Transformer Engine
+- Fifth-gen NVLink and NVSwitch
+- Confidential computing support (sm_100)
 
-```
-# Compile for specific architecture
-tileir-compile -arch=sm_89 -o kernel.tileir kernel.tile
+### Feature Availability Matrix
 
-# Compile for multiple architectures (fat binary)
-tileir-compile -arch=sm_80,sm_86,sm_89 -o kernel.tileir kernel.tile
-```
+The following matrix shows feature availability per architecture family:
 
-When compiling a fat binary, the compiler includes optimized code for each specified
-architecture. At runtime, the driver selects the best-matching version for the
-installed GPU.
+| Feature | Ampere (sm_80-88) | Ada (sm_89) | Hopper (sm_90) | Blackwell (sm_100) | Blackwell (sm_120) |
+|---------|-------------------|-------------|----------------|--------------------|--------------------|
+| Integer types (i1-i64) | Supported | Supported | n/a | Supported | Supported |
+| FP16 operations | Supported | Supported | n/a | Supported | Supported |
+| BF16 operations | Supported | Supported | n/a | Supported | Supported |
+| TF32 operations | Supported | Supported | n/a | Supported | Supported |
+| FP32 operations | Supported | Supported | n/a | Supported | Supported |
+| FP64 operations | Supported | Supported | n/a | Supported | Supported |
+| FP8 (E4M3FN) | Not Supported | Not Supported | n/a | Supported | Supported |
+| FP8 (E5M2) | Not Supported | Not Supported | n/a | Supported | Supported |
+| Tensor Core MMA | Supported | Supported | n/a | Supported | Supported |
+| Tile loads/stores | Supported | Supported | n/a | Supported | Supported |
+| Token-ordered ops | Supported | Supported | n/a | Supported | Supported |
+| Atomic RMW | Supported | Supported | n/a | Supported | Supported |
+| Memory model (scopes) | Supported | Supported | n/a | Supported | Supported |
+| Debug info in bytecode | Supported | Supported | n/a | Supported | Supported |
 
----
+## Feature Availability & Emulation
 
-## 4. Feature Availability and Emulation
+### Target-specific Features
 
-### 4.1 Target-Specific Features
+Tile IR may introduce new target-specific features (e.g., new datatypes, new operations) over time.
 
-Some Tile IR operations and types have hardware-specific behavior or availability.
-The following table summarizes which features are available on which architectures:
+- **Availability:** A feature introduced in vX.Y becomes usable on a hardware target starting with the first platform release that declares support for it.
+- **Fallback:** If a program uses a feature unsupported by the selected hardware target, the compiler will either diagnose the incompatibility or apply a lowering (emulation) that preserves semantics as defined by the specification.
 
-| Feature | sm_80 | sm_86 | sm_87 | sm_88 | sm_89 | sm_100 | sm_120 |
-|---------|-------|-------|-------|-------|-------|--------|--------|
-| `mmaf` f16xf16->f32 | Native | Native | Native | Native | Native | Native | Native |
-| `mmaf` bf16xbf16->f32 | Native | Native | Native | Native | Native | Native | Native |
-| `mmaf` tf32xtf32->f32 | Native | Native | Native | Native | Native | Native | Native |
-| `mmaf` e4m3xe4m3->f32 | -- | -- | -- | -- | Native | Native | Native |
-| `mmaf` e5m2xe5m2->f32 | -- | -- | -- | -- | Native | Native | Native |
-| `mmaf` e4m3xe5m2->f32 | -- | -- | -- | -- | Native | Native | Native |
-| `mmai` s8xs8->s32 | Native | Native | Native | Native | Native | Native | Native |
-| `mmai` u8xu8->s32 | Native | Native | Native | Native | Native | Native | Native |
-| `atomic_rmw_tko` f16 | Native | Native | Native | Native | Native | Native | Native |
-| `atomic_rmw_tko` bf16 | -- | -- | -- | -- | Native | Native | Native |
-| `atan2` f32/f64 | Native | Native | Native | Native | Native | Native | Native |
-| `unsignedCmp` | Emulated | Emulated | Emulated | Emulated | Emulated | Emulated | Emulated |
+Note that certain types have more restricted usage than others. See Element Types for details.
 
-### 4.2 Fallback Behavior
+> **Warning:** During the 13.x release cycle, we are bringing up existing hardware targets which may introduce new features on old targets. This "cold start" period is an exception; normally, new features will only appear in new targets.
 
-When a program uses a feature that is not natively supported on the target
-architecture, the Tile IR compiler applies one of the following fallback strategies:
+> **Note:** Today the only target-specific features are specific datatypes.
 
-| Strategy | Description | Performance Impact |
-|----------|-------------|-------------------|
-| **Emulation via software** | The operation is implemented using multiple native operations | Moderate to severe |
-| **Type promotion** | Operands are promoted to a supported type, computed, then demoted | Moderate |
-| **Rejection** | No feasible emulation exists; compilation fails | N/A |
+### Hardware Support Matrix
 
-**Example: FP8 MMA on Ampere**
+Detailed hardware support for each data type across all supported architectures:
 
-```
-// Original: uses e4m3 MMA (not supported on sm_80)
-%result = mmaf %A, %B, %C : tile<128x64xe4m3>, tile<64x128xe4m3>, tile<128x128xf32>
+| Data Type | Size (bits) | Ampere (sm_80+) | Ada (sm_89) | Hopper (sm_90) | Blackwell (sm_100+) |
+|-----------|------------|-----------------|-------------|----------------|---------------------|
+| `i1` | 1 | Supported | Supported | n/a | Supported |
+| `i8` | 8 | Supported | Supported | n/a | Supported |
+| `i16` | 16 | Supported | Supported | n/a | Supported |
+| `i32` | 32 | Supported | Supported | n/a | Supported |
+| `i64` | 64 | Supported | Supported | n/a | Supported |
+| `f16` | 16 | Supported | Supported | n/a | Supported |
+| `bf16` | 16 | Supported | Supported | n/a | Supported |
+| `f32` | 32 | Supported | Supported | n/a | Supported |
+| `tf32` | 19 | Supported | Supported | n/a | Supported |
+| `f64` | 64 | Supported | Supported | n/a | Supported |
+| `f8E4M3FN` | 8 | Not Supported | Not Supported | n/a | Supported |
+| `f8E5M2` | 8 | Not Supported | Not Supported | n/a | Supported |
 
-// Compiler emulation on sm_80:
-// 1. Promote e4m3 -> f16 (with precision loss)
-// 2. Execute mmaf with f16
-// 3. Result is tile<128x128xf32> (same as original)
-```
+**Data Type Descriptions:**
 
-### 4.3 Warning About 13.x "Cold Start" Period
+| Type | Description | Typical Use Case |
+|------|------------|-----------------|
+| `i1` | 1-bit boolean | Masks, predicates, conditions |
+| `i8` | 8-bit signed/unsigned integer | Quantized inference, character data |
+| `i16` | 16-bit signed/unsigned integer | Half-precision integer computation |
+| `i32` | 32-bit signed/unsigned integer | General-purpose integer computation, indexing |
+| `i64` | 64-bit signed/unsigned integer | Large integer computation, wide addressing |
+| `f16` | IEEE 754 half-precision (binary16) | Mixed-precision training, inference |
+| `bf16` | Brain float (1 sign, 8 exp, 7 mantissa) | Deep learning training |
+| `tf32` | TensorFloat-32 (1 sign, 8 exp, 10 mantissa) | Tensor Core operations |
+| `f64` | IEEE 754 double-precision (binary64) | High-precision scientific computing |
+| `f8E4M3FN` | 8-bit float (4 exp, 3 mantissa) | FP8 inference on Blackwell |
+| `f8E5M2` | 8-bit float (5 exp, 2 mantissa) | FP8 training on Blackwell |
 
-Tile IR 13.x is the first major release of the Tile IR specification and toolchain.
-During this initial release period (the "cold start"), users should be aware of the
-following:
+### Emulation Strategies
 
-1. **Performance may not be optimal**: The compiler may not yet have all architecture-
-   specific optimizations for every supported GPU. Performance will improve in
-   subsequent minor releases.
+To maintain portability, Tile IR may emulate operations on hardware targets that lack native support. The following emulation strategies are available:
 
-2. **Emulation paths may be less tested**: Fallback code paths for features not
-   natively supported on older architectures may have edge cases. Report any
-   discrepancies between emulated and native results.
+**Type Emulation:**
 
-3. **API surface may evolve**: While bytecode stability is guaranteed within 13.x,
-   the compiler command-line interface, error messages, and diagnostic output may
-   change between minor releases.
+When a data type is not natively supported, Tile IR may emulate it using a wider type:
 
-4. **Documentation may lag**: Some edge cases in the interaction between Tile IR
-   operations and specific GPU behaviors may not yet be fully documented.
+| Unsupported Type | Emulation Strategy | Notes |
+|-----------------|-------------------|-------|
+| FP8 on Ampere/Ada | Promote to FP16 or BF16, perform operation, convert back | Loss of dynamic range; semantics preserved within FP8 representable range |
+| BF16 on legacy | Promote to FP32, perform operation, convert back | May differ in edge cases |
+| TF32 on non-Tensor-Core | Use FP32 with reduced mantissa | Tensor Core specific; falls back to FP32 math |
 
----
+**Operation Emulation:**
 
-## 5. Hardware Support Matrix
+When an operation is not natively supported on the target:
 
-### 5.1 Data Types per Architecture
+| Scenario | Strategy | Notes |
+|----------|----------|-------|
+| Native hardware op unavailable | Decompose into sequence of supported ops | Preserves semantics; may be slower |
+| Tensor Core MMA on non-supporting target | Emulate using scalar/vector operations | Significant performance impact |
+| Advanced atomics | Decompose into CAS loop | Correct but slower |
 
-The following matrix shows which element types are natively supported for arithmetic
-operations on each architecture:
-
-| Element Type | Size | sm_80 | sm_86 | sm_89 | sm_100 | sm_120 |
-|-------------|------|-------|-------|-------|--------|--------|
-| `i1` | 1 bit | Yes | Yes | Yes | Yes | Yes |
-| `i8` | 8 bits | Yes | Yes | Yes | Yes | Yes |
-| `i16` | 16 bits | Yes | Yes | Yes | Yes | Yes |
-| `i32` | 32 bits | Yes | Yes | Yes | Yes | Yes |
-| `i64` | 64 bits | Yes | Yes | Yes | Yes | Yes |
-| `f16` | 16 bits | Yes | Yes | Yes | Yes | Yes |
-| `f32` | 32 bits | Yes | Yes | Yes | Yes | Yes |
-| `f64` | 64 bits | Yes | Yes | Yes | Yes | Yes |
-| `bf16` | 16 bits | Yes | Yes | Yes | Yes | Yes |
-| `tf32` | 19 bits | Yes | Yes | Yes | Yes | Yes |
-| `e4m3` | 8 bits | Emulated | Emulated | Yes | Yes | Yes |
-| `e5m2` | 8 bits | Emulated | Emulated | Yes | Yes | Yes |
-
-### 5.2 Memory Operation Support
-
-| Memory Feature | sm_80 | sm_86 | sm_89 | sm_100 | sm_120 |
-|---------------|-------|-------|-------|--------|--------|
-| `load_ptr_tko` weak | Yes | Yes | Yes | Yes | Yes |
-| `load_ptr_tko` relaxed | Yes | Yes | Yes | Yes | Yes |
-| `load_ptr_tko` release/acquire | Yes | Yes | Yes | Yes | Yes |
-| `load_ptr_tko` acq_rel | Yes | Yes | Yes | Yes | Yes |
-| `store_ptr_tko` weak | Yes | Yes | Yes | Yes | Yes |
-| `store_ptr_tko` relaxed | Yes | Yes | Yes | Yes | Yes |
-| `store_ptr_tko` release | Yes | Yes | Yes | Yes | Yes |
-| `atomic_cas_tko` | Yes | Yes | Yes | Yes | Yes |
-| `atomic_rmw_tko` | Yes | Yes | Yes | Yes | Yes |
-| Tensor view (dynamic shape) | Yes | Yes | Yes | Yes | Yes |
-| Partition view (tiling) | Yes | Yes | Yes | Yes | Yes |
-
-### 5.3 Maximum Tile Dimensions
-
-The maximum tile dimensions supported by the hardware tensor cores vary by
-architecture. The Tile IR compiler validates tile dimensions at compile time.
-
-| MMA Tile Configuration | sm_80 | sm_86 | sm_89 | sm_100 | sm_120 |
-|----------------------|-------|-------|-------|--------|--------|
-| 16x8x16 (f16) | Yes | Yes | Yes | Yes | Yes |
-| 16x8x8 (tf32) | Yes | Yes | Yes | Yes | Yes |
-| 16x8x32 (e4m3) | -- | -- | Yes | Yes | Yes |
-| 16x8x32 (e5m2) | -- | -- | Yes | Yes | Yes |
-| 8x8x16 (bf16) | Yes | Yes | Yes | Yes | Yes |
-| 128x128x64 (f16, batched) | -- | -- | -- | Yes | Yes |
-
----
-
-## 6. Emulation of Unsupported Operations
-
-When the Tile IR compiler encounters an operation that is not natively supported on
-the target architecture, it applies an emulation strategy. This section documents the
-specific emulation approaches used for common cases.
-
-### 6.1 FP8 Emulation on Pre-Ada Architectures
-
-FP8 types (`e4m3`, `e5m2`) are not supported in hardware before Ada (sm_89). The
-compiler emulates them as follows:
-
-**Conversion**: FP8 values are promoted to `f16` or `f32` for computation, then
-converted back to FP8 for storage.
-
-**MMA operations**: `mmaf` with FP8 inputs is emulated by:
-1. Converting both input tiles from FP8 to f16 (with rounding)
-2. Executing the f16 MMA operation
-3. The accumulator remains in f32 (same as the native operation)
-
-**Precision note**: FP8 emulation via f16 promotion loses the quantization behavior
-of the original FP8 format. Results from emulated execution will differ slightly from
-native FP8 execution on Ada/Blackwell GPUs.
-
-### 6.2 Unsigned Comparison Emulation
-
-The `unsignedCmp` modifier on the `cmpi` operation is emulated on all architectures
-by:
-
-1. XORing the sign bit of both operands with `1` (flipping the sign bit)
-2. Performing a signed comparison on the modified values
-3. The result is the correct unsigned comparison
-
-This emulation works because flipping the sign bit transforms unsigned ordering into
-signed ordering for two's-complement integers.
-
-### 6.3 Atomic Operation Emulation
-
-Most atomic operations are natively supported. When an atomic operation on an
-unsupported type is encountered (e.g., `atomic_rmw_tko` on `bf16` for sm_80), the
-compiler emulates it using `atomic_cas_tko` in a compare-and-swap loop:
+**Emulation Behavior Summary:**
 
 ```
-// Emulated atomic_rmw_tko add on bf16:
-loop {
-    %old = load_ptr_tko acq_rel %ptr : ... -> tile<bf16>, token
-    %old_f32 = ftof %old : tile<bf16> -> tile<f32>
-    %new_f32 = addf %old_f32, %val_f32 rounding<nearest_even> : tile<f32>
-    %new = ftof %new_f32 : tile<f32> -> tile<bf16>
-    %success, %expected = atomic_cas_tko acq_rel %ptr, %old, %new : ...
-    %done = cmpi %success, %one cmp<eq> : tile<i32>
-    breakif %done : tile<i1>
-}
+For a program using an unsupported feature:
+  1. Compiler checks if the feature is available on the target
+  2. If not available:
+     a. If emulation exists: Apply lowering, emit performance warning
+     b. If no emulation: Diagnose error, fail compilation
+  3. Emulated operations preserve semantic correctness
+  4. Performance may differ significantly from native execution
 ```
 
-### 6.4 Emulation Performance Impact
+## Execution & Numerical Guarantees
 
-| Emulated Feature | Approximate Slowdown vs Native |
-|-----------------|-------------------------------|
-| FP8 MMA -> f16 MMA | 2-3x (due to conversion overhead) |
-| unsignedCmp -> signed + XOR | 1.1x (nearly free) |
-| bf16 atomic -> CAS loop | 5-20x (depends on contention) |
-| e4m3 arithmetic -> f32 arithmetic | 2-4x (per-element conversion) |
+### Execution Determinism
 
----
+For a fixed toolchain, configuration, and hardware target, compilation and execution are deterministic within a single tile-block thread.
 
-## 7. Execution and Numerical Guarantees
+**What IS deterministic:**
 
-### 7.1 Execution Determinism
+- Within a single tile-block thread, for a fixed toolchain version, fixed configuration flags, and fixed target hardware, the sequence of operations and their results are deterministic.
+- The same bytecode, compiled with the same toolchain to the same target, will produce the same results on the same hardware.
 
-**Guarantee**: A Tile IR program produces deterministic results when all of the
-following are held constant:
+**What is NOT guaranteed to be deterministic:**
 
-1. **Toolchain version**: The same Tile IR compiler version (major.minor.tag)
-2. **Compiler configuration**: The same optimization flags and target architecture
-3. **Hardware**: The same GPU model and driver version
-4. **Input**: The same input data and parameters
+- Results across different toolchain versions (the compiler may choose different instruction sequences).
+- Results across different hardware targets (different hardware may implement operations differently).
+- Results across different configuration settings (e.g., different optimization levels).
+- Inter-tile-block thread execution ordering (the order in which different tile blocks execute relative to each other is unspecified).
 
-**Non-determinism sources**: The following factors can cause non-deterministic results:
+**Version Changes:** Using a different toolchain version may produce a different program and thus different results; this is expected behavior, not non-determinism.
 
-| Factor | Description | Affected Operations |
-|--------|-------------|-------------------|
-| **Tile block scheduling** | Order of tile block execution is unspecified | Operations that depend on inter-block communication via global memory |
-| **Floating-point reduction order** | The order of floating-point additions in reductions is unspecified | `reduce` with `addf` accumulator, `scan` with `addf` |
-| **Atomic operations** | The order of concurrent atomic updates is unspecified | `atomic_rmw_tko`, `atomic_cas_tko` with concurrent access |
-| **Floating-point rounding** | Different hardware may apply different internal rounding | `mmaf` with mixed precision |
-
-**Ensuring determinism**:
-
-- For reductions: use the same reduction algorithm and ensure tile dimensions are
-  consistent across runs.
-
-- For atomics: use only a single tile block, or use atomic operations only where the
-  order does not affect the final result (e.g., computing a maximum).
-
-- For cross-block communication: use explicit synchronization via host code between
-  kernel launches.
-
-### 7.2 Numerical Stability
-
-**Guarantee**: Tile IR does NOT guarantee bit-identical results across different
-compiler versions, optimization levels, or hardware architectures.
-
-**Reasons for numerical variation**:
-
-1. **FMA contraction**: The compiler may fuse a multiply and add into a fused
-   multiply-add (FMA), which produces a different (more accurate) result than separate
-   multiply and add operations.
-
-2. **Reduction reassociation**: The compiler may reorder floating-point reductions,
-   changing the accumulation order and producing slightly different results.
-
-3. **Operation substitution**: The compiler may replace one operation with a
-   mathematically equivalent but numerically different sequence (e.g., replacing
-   `x * 0.5` with `x / 2.0`).
-
-4. **Tensor core precision**: `mmaf` operations on tensor cores use reduced-precision
-   internal arithmetic. Different architectures may produce slightly different results
-   for the same MMA operation.
-
-5. **Rounding mode interactions**: Different sequences of rounding operations (even
-   with the same rounding mode) can produce different final results.
-
-### 7.3 Floating-Point Semantics
-
-Tile IR follows IEEE 754 floating-point semantics with the following clarifications:
-
-**Default rounding mode**: All floating-point operations in Tile IR require an explicit
-`rounding<mode>` attribute. The supported modes are:
-
-| Mode | Description |
-|------|-------------|
-| `nearest_even` | Round to nearest, ties to even (IEEE 754 default) |
-| `toward_zero` | Round toward zero (truncation) |
-| `toward_positive` | Round toward positive infinity |
-| `toward_negative` | Round toward negative infinity |
-
-**Compiler transformations**: The Tile IR compiler is permitted to perform the
-following floating-point transformations that are NOT value-preserving:
-
-| Transformation | Example | Condition |
-|---------------|---------|-----------|
-| FMA contraction | `a * b + c -> fma(a, b, c)` | Always permitted |
-| Reassociation | `(a + b) + c -> a + (b + c)` | Permitted for reductions |
-| Reciprocal optimization | `a / b -> a * (1/b)` | Only when `rounding<nearest_even>` |
-| Division by constant | `a / 2.0 -> a * 0.5` | Permitted for exact powers of 2 |
-
-**NaN and Infinity**: Tile IR follows IEEE 754 rules for NaN and Infinity propagation:
-- Operations involving NaN produce NaN (signaling NaNs are quieted)
-- Division by zero produces Infinity (not an exception)
-- Comparisons with NaN follow the IEEE 754 totalOrdering rules
-
-**Subnormal (denormal) numbers**: Tile IR preserves subnormal numbers in all
-operations. The compiler does NOT flush subnormals to zero unless explicitly requested
-via a compiler flag.
-
-**Note on `tanh` rounding**: As of Tile IR 13.2, the `tanh` operation supports the
-`rounding_mode` attribute. Previously, `tanh` was specified with undefined rounding.
-See Release Notes for details.
-
----
-
-## 8. Release Notes 13.2
-
-This section documents the changes introduced in Tile IR version 13.2.
-
-### 8.1 New Architectures
-
-Tile IR 13.2 adds support for the following architectures (previously supported in
-13.1 for Blackwell, newly added in 13.2 for Ampere and Ada):
-
-| Architecture | Compute Capability | Status |
-|-------------|--------------------|--------|
-| Ampere | sm_80, sm_86, sm_87, sm_88 | **New in 13.2** |
-| Ada Lovelace | sm_89 | **New in 13.2** |
-| Blackwell | sm_100 | Supported since 13.1 |
-| Blackwell | sm_120 | Supported since 13.1 |
-
-### 8.2 New Operations
-
-#### `atan2`
+**Example:**
 
 ```
-%result = atan2 %y, %x rounding<nearest_even> : tile<Nxf32>
+// Same bytecode, different toolchains:
+// Toolchain 13.1: compiles add -> hardware_add_instruction_v1
+// Toolchain 13.2: compiles add -> hardware_add_instruction_v2 (optimized)
+
+// Both produce correct results, but bit patterns may differ
+// due to different instruction selection, scheduling, etc.
 ```
 
-Computes the arc tangent of `y/x` using the signs of both arguments to determine the
-quadrant. Supported for `f32` and `f64` element types.
+### Numerical Stability
 
-- **Opcode**: Assigned in 13.2
-- **Behavior**: Follows IEEE 754 semantics for `atan2`
-- **Supported architectures**: All (sm_80 and above)
-- **Rounding**: Supports all rounding modes
+Tile IR does not guarantee bit-identical numerical results across different toolchain versions, configurations, or targets, except where explicitly documented.
 
-### 8.3 Updated Operations
+**Scope:** Stability guarantees are scoped to specific versions and targets. When a guarantee is documented for a specific operation on a specific target, it holds only for that combination.
 
-#### `negi` Overflow Behavior Change
+**Updates:** Changes are not retroactive; compiling/executing with an earlier toolchain retains the guarantees published for that version.
 
-The `negi` operation (integer negation) now has defined overflow behavior:
+**Numerical Stability Scope Table:**
 
-```
-// Before 13.2: negi of INT_MIN was undefined behavior
-// In 13.2: negi of INT_MIN wraps around (produces INT_MIN for two's complement)
-%result = negi %val : tile<i32>
-```
+| Aspect | Guaranteed | Not Guaranteed |
+|--------|-----------|----------------|
+| Same toolchain + config + target | Deterministic results | -- |
+| Different toolchain version | -- | Bit-identical results |
+| Different target architecture | -- | Bit-identical results |
+| Different optimization level | -- | Bit-identical results |
+| MMA operations | -- | Bit-identical results (unless documented) |
+| Scalar arithmetic | IEEE-compliant for evaluation order | Bit-identical across targets |
 
-- **Change**: `negi` of the minimum signed integer value (e.g., `INT_MIN` for `i32`)
-  now produces the minimum value itself (i.e., `negi(-2147483648) = -2147483648` for
-  `i32`). This is consistent with two's-complement wrap-around semantics.
-- **Impact**: Programs that relied on undefined behavior for `negi` of `INT_MIN` may
-  produce different results. This change makes the behavior deterministic and portable.
+### Floating-point Semantics
 
-#### `tanh` `rounding_mode` Attribute
+Floating-point operations follow applicable IEEE semantics for the order in which they are actually evaluated.
 
-The `tanh` operation now supports an explicit `rounding_mode` attribute:
+**IEEE Compliance:**
 
-```
-// New syntax (13.2):
-%result = tanh %val rounding<nearest_even> : tile<Nxf32>
+- Floating-point operations in Tile IR follow IEEE 754 semantics for the precision and rounding mode in effect.
+- The order of evaluation is determined by the compiler and may differ from the source order.
+- Intermediate results may be computed at a higher precision than the final result type.
 
-// Old syntax (pre-13.2, still accepted but deprecated):
-%result = tanh %val : tile<Nxf32>
-```
+**Transformations:** Compiler transformations (e.g., reordering, fusion) can change numeric results across versions. The compiler may:
 
-- **Change**: `tanh` now accepts the standard `rounding<mode>` attribute. The old
-  syntax (without rounding) is still accepted and defaults to `nearest_even`.
-- **Impact**: Existing programs continue to work without modification. New programs
-  should specify the rounding mode explicitly.
+- Reorder floating-point operations (e.g., `(a + b) + c` -> `a + (b + c)`).
+- Fuse operations (e.g., multiply-add -> fused multiply-add).
+- Convert between precision representations for intermediate results.
+- Apply algebraic simplifications that are not strictly IEEE-equivalent.
 
-#### `print_tko` Token Output
+These transformations preserve overall correctness but may change bit-level results.
 
-The `print` operation (used for debug output) now produces a token:
+**Precision:** Operations like MMA (Matrix Multiply-Accumulate) may have weaker or no guarantees of bit-identical numerical results unless explicitly documented. MMA operations are typically performed at reduced precision internally (e.g., TF32 accumulates in FP32 but only uses 10 mantissa bits for the multiplication).
 
-```
-// New syntax (13.2):
-%tok = print_tko "value = %f\n", %val : tile<Nxf32> -> token
+**Floating-point Operation Behavior:**
 
-// Old syntax (pre-13.2):
-print "value = %f\n", %val : tile<Nxf32>
-```
+| Operation Type | Guarantee |
+|---------------|-----------|
+| Scalar add/sub/mul/div | IEEE 754 compliant at evaluation precision |
+| FMA (fused multiply-add) | Single rounding at target precision |
+| MMA (Tensor Core) | Precision determined by input/output types; may not be bit-identical across implementations |
+| Type conversions | IEEE 754 rounding applied; overflow/underflow behavior defined |
+| Reduction operations | Order of reduction unspecified; may not be bit-identical across toolchains |
+| Transcendental functions | Implementation-defined accuracy; typically within 1-2 ULP |
 
-- **Change**: `print_tko` now returns a token value, allowing it to be ordered with
-  respect to memory operations. The old `print` syntax without token return is
-  deprecated but still accepted.
-- **Impact**: Programs using `print` in token chains should switch to `print_tko`.
-  Programs using standalone `print` continue to work but should be migrated.
-
-#### `cmpi` `unsignedCmp` Modifier
-
-The `cmpi` operation now supports an `unsignedCmp` modifier for unsigned integer
-comparison:
+**Example: Non-associativity of floating-point arithmetic**
 
 ```
-// Signed comparison (default):
-%result = cmpi %a, %b cmp<gt> : tile<i32>
+// These may produce different results depending on evaluation order:
+%a = add %x, %y    // x + y
+%b = add %a, %z    // (x + y) + z
 
-// Unsigned comparison (new in 13.2):
-%result = cmpi %a, %b cmp<gt> unsignedCmp : tile<i32>
+// vs.
+%c = add %y, %z    // y + z
+%d = add %x, %c    // x + (y + z)
+
+// IEEE 754 guarantees each individual add is correct,
+// but the final results may differ due to rounding.
+// Tile IR does not guarantee which order is chosen.
 ```
 
-- **Change**: `cmpi` now accepts an `unsignedCmp` modifier that treats operands as
-  unsigned integers for comparison purposes. Without the modifier, comparison is
-  signed.
-- **Impact**: This is a new feature; existing programs are unaffected.
-- **Emulation**: On all currently supported architectures, `unsignedCmp` is emulated
-  via sign-bit flipping and signed comparison (see Section 6.2).
+## Release Notes
 
-### 8.4 Other Changes
+### Known Issues
 
-- **Bytecode version**: Updated to 13.2.0 (major=13, minor=2, tag=0)
-- **String section deduplication**: The string section now deduplicates identical
-  strings, reducing bytecode size for programs with repeated string constants.
-- **Improved error messages**: The validator now provides more descriptive error
-  messages for common mistakes, including the specific operation and location
-  information when available.
+The following known issues exist in the current Tile IR release:
 
----
+1. **Cross-tile block kernel support:** The programming model is missing a section on a cross-tile block kernel such as split-k. This means that kernel patterns requiring coordination across multiple tile blocks (beyond what the memory model provides) are not yet documented or fully supported in the programming model.
 
-## 9. Known Issues
+2. **Operation encoding detail:** The bytecode section does not provide exact encoding of each individual operation. While the general encoding format and common operation examples are documented, the precise binary layout for every operation opcode is not yet specified. Expect this to be introduced in a future release.
 
-The following known issues exist in Tile IR version 13.2:
+3. **Memory model examples:** The semi-formal memory model section is written but does not provide detailed examples of how to utilize it. The axioms and relations are defined, but practical usage patterns and complete working examples are not yet available.
 
-### Issue 1: Incorrect `scan` Results for Large Tiles
+4. **Limited atomics:** Atomics are currently limited in Tile IR and will be expanded in a future release. The current atomic operations support basic read-modify-write patterns (add, sub, and, or, xor, min, max) and compare-and-swap, but more advanced atomic patterns and wider atomic operation support are planned.
 
-**Description**: The `scan` operation may produce incorrect results when applied to
-tiles with dimensions larger than 1024 elements in the scan dimension, specifically
-when using the `addf` accumulator with `f32` element type on Ampere (sm_80, sm_86)
-architectures.
+5. **Hopper support gap:** Hopper (`sm_90`) architecture is not supported in the 13.2 release. Programs targeting H100/H200 GPUs cannot be compiled with the current Tile IR release.
 
-**Workaround**: Limit scan tile dimensions to 1024 or fewer elements. For larger
-scans, split the operation into multiple passes.
+6. **Emulation limitations:** Not all unsupported features can be emulated on all targets. In some cases, the compiler must diagnose the incompatibility rather than providing a fallback path.
 
-**Affected architectures**: sm_80, sm_86, sm_87, sm_88
-**Affected operations**: `scan` with `addf` accumulator, `f32` element type,
-dimension > 1024
+### Changelog
 
-### Issue 2: Token Ordering Not Enforced for `store_view_tko` After `load_view_tko`
+#### Spec 13.2 (2026-03-11)
 
-**Description**: In certain optimization configurations, the compiler may reorder a
-`store_view_tko` that writes to the same partition view location as a preceding
-`load_view_tko`, even when the two operations are connected by a token chain. This
-violates the token ordering guarantee.
+The Tile IR 13.2 release adds support for additional GPU architectures and introduces several new and updated operations.
 
-**Workaround**: Insert a `make_token` barrier between the load and store to force
-ordering.
+**Supported Architectures**
 
-```
-// Workaround:
-%val, %t1 = load_view_tko weak %pv[%x, %y] : ... -> tile<f32>, token
-%barrier = make_token : token                            // Force barrier
-%t2 = store_view_tko weak %val, %pv[%x, %y] : ... -> token
-%t3 = join_tokens %t1, %barrier, %t2 : token, token, token -> token
-```
+- Added support for Ampere (sm_80, sm_86, sm_87, sm_88) architectures. This enables Tile IR programs to run on NVIDIA A100, A30, A40, RTX 3090, RTX 3080, and Jetson Orin platforms.
+- Added support for Ada (sm_89) architecture. This enables Tile IR programs to run on NVIDIA L40, L40S, RTX 4090, and RTX 4080 platforms.
 
-**Affected architectures**: All
-**Affected configurations**: `-O2` and `-O3` optimization levels
+**New Operations**
 
-### Issue 3: `mmai` with Mixed Sign Operands on Blackwell sm_120
+- **`cuda_tile.atan2`**: Added a new operation for element-wise two-argument arctangent. This operation computes `atan2(y, x)` for each element in the input tiles, returning the angle in radians between the positive x-axis and the point `(x, y)`. The operation supports all floating-point data types and follows the IEEE 754 semantics for `atan2`, including proper handling of special cases (zero, infinity, NaN).
 
-**Description**: The `mmai` (integer matrix multiply-accumulate) operation produces
-incorrect results on Blackwell sm_120 when the two input tiles have different sign
-types (e.g., one `s8` and one `u8`). This occurs only when the accumulator is non-zero.
+  Syntax:
+  ```
+  %result = cuda_tile.atan2 %y, %x : tensor<MxNxf32>
+  ```
 
-**Workaround**: Ensure both input tiles have the same sign type. Use sign extension
-(`exti`) or zero-padding to convert operands to a common sign before `mmai`.
+**Updated Operations**
 
-**Affected architectures**: sm_120 only
-**Affected operations**: `mmai` with mismatched signed/unsigned input types
+- **`cuda_tile.negi`**: Added `overflow` attribute to control integer overflow behavior. When `overflow` is set to `nsw` (no signed wrap), the compiler can assume that negation does not overflow, enabling additional optimizations. When `overflow` is not set, the operation follows standard two's complement wrapping behavior.
 
-### Issue 4: Compiler Crash on Deeply Nested `for` Loops
+  Syntax:
+  ```
+  %result = cuda_tile.negi %input {overflow = nsw} : tensor<MxNi32>
+  ```
 
-**Description**: The Tile IR compiler may crash with an out-of-memory error when
-compiling programs with `for` loops nested more than 8 levels deep. The compiler's
-internal representation allocates exponential space for deeply nested loop
-structures.
+- **`cuda_tile.tanh`**: Added `rounding_mode` attribute to control floating-point rounding behavior. This allows programmers to specify the rounding behavior for the hyperbolic tangent operation, which can be important for numerical reproducibility.
 
-**Workaround**: Limit loop nesting to 8 levels or fewer. Refactor deeply nested loops
-into separate kernel launches where possible.
+  Syntax:
+  ```
+  %result = cuda_tile.tanh %input {rounding_mode = "nearest"} : tensor<MxNxf32>
+  ```
 
-**Affected architectures**: All (compiler issue, not hardware-specific)
-**Affected configurations**: All optimization levels
+- **`cuda_tile.print_tko`**: Added token result for memory ordering support. The print operation now produces a token output that can be used to order the print relative to other token-ordered memory operations. This ensures that printed values reflect the correct state of memory when used in conjunction with the memory model.
 
----
+  Syntax:
+  ```
+  %tok_out = cuda_tile.print_tko %value token(%tok_in)
+  ```
 
-## Appendix: Version History Summary
+- **`cuda_tile.for`**: Added `unsignedCmp` flag to support unsigned integer comparison for loop termination. When `unsignedCmp` is set to true, the loop comparison treats the induction variable and bounds as unsigned integers, which changes the behavior for negative values and large positive values near the maximum representable value.
+
+  Syntax:
+  ```
+  %result = cuda_tile.for %lb to %ub step %step {unsignedCmp = true} ...
+  ```
+
+- **`cuda_tile.print` -> `cuda_tile.print_tko`**: Renamed `cuda_tile.print` to `cuda_tile.print_tko` in the textual format to reflect the token-ordered nature of the operation. The bytecode encoding is unchanged and remains backward compatible; existing bytecode files with the old encoding continue to work without modification. Only the textual (assembly) representation has changed.
+
+**Backward Compatibility Notes:**
+
+- All existing bytecode files remain compatible with the 13.2 driver.
+- The `cuda_tile.print` to `cuda_tile.print_tko` rename only affects the textual format. Binary encoding is unchanged.
+- New operations (`atan2`) use new opcodes that older drivers will skip or reject gracefully.
+- New attributes (`overflow`, `rounding_mode`, `unsignedCmp`) are optional; existing programs that do not use them remain compatible.
+
+**Breaking Changes:**
+
+- None. The 13.2 release is fully backward compatible with 13.1.
+
+**Deprecations:**
+
+- The textual format name `cuda_tile.print` is deprecated in favor of `cuda_tile.print_tko`. The old name may still be accepted by the assembler in 13.2 but will be removed in a future release.
+
+#### Spec 13.1 (2025-XX-XX)
+
+The Tile IR 13.1 release introduced initial support for the Blackwell architecture.
+
+**Supported Architectures**
+
+- Initial support for Blackwell (sm_100) architecture, enabling Tile IR programs on NVIDIA B200 and B100 platforms.
+- Initial support for Blackwell (sm_120) architecture, enabling Tile IR programs on NVIDIA RTX 5090 and RTX PRO 6000 platforms.
+
+**Features:**
+
+- Native FP8 (f8E4M3FN and f8E5M2) data type support on Blackwell architectures.
+- Fifth-generation Tensor Core support.
+- Initial Tile IR bytecode format specification.
+
+### Version History Summary
 
 | Version | Date | Major Changes |
 |---------|------|---------------|
-| 13.0 | 2025-09-01 | Initial Tile IR release. Blackwell support. |
-| 13.1 | 2025-12-15 | Bug fixes. Improved emulation. Blackwell sm_100/sm_120. |
-| 13.2 | 2026-03-11 | Ampere/Ada support. New: `atan2`, `unsignedCmp`. Updated: `negi`, `tanh`, `print_tko`. |
+| 13.2 | 2026-03-11 | Ampere + Ada support, atan2, updated negi/tanh/for/print_tko |
+| 13.1 | 2025 | Initial Blackwell support, FP8 native, bytecode format |
+
+### Upgrade Guide
+
+**Upgrading from 13.1 to 13.2:**
+
+1. **Ampere/Ada targets:** You can now compile for sm_80, sm_86, sm_87, sm_88, and sm_89 targets using `--gpu-name`.
+2. **New operation `atan2`:** Available on all supported targets. Add to your programs as needed.
+3. **`cuda_tile.negi` overflow attribute:** Use `{overflow = nsw}` for additional optimization opportunities when negation is guaranteed not to wrap.
+4. **`cuda_tile.tanh` rounding_mode:** Use `{rounding_mode = "nearest"}` or other modes for explicit rounding control.
+5. **`cuda_tile.for` unsignedCmp:** Use `{unsignedCmp = true}` when loop bounds should be compared as unsigned integers.
+6. **`cuda_tile.print` renamed to `cuda_tile.print_tko`:** Update your textual Tile IR sources. Bytecode is unchanged.
+
+**Compatibility when upgrading:**
+
+- All 13.1 bytecode files run without modification on 13.2 drivers.
+- No recompilation required for existing programs.
+- New features are opt-in; existing programs are unaffected.
+
+### Frequently Asked Questions
+
+**Q: Will my Tile IR program produce identical results on Ampere and Blackwell?**
+
+A: Not necessarily. While the program semantics are preserved, different architectures may use different instruction sequences, different precisions for intermediate results, and different rounding behaviors. Tile IR guarantees correctness, not bit-identical results across targets. See the Numerical Stability section for details.
+
+**Q: What happens if I use FP8 types on an Ampere GPU?**
+
+A: The compiler will attempt to emulate FP8 operations using wider types (typically FP16 or BF16). If emulation is available, the program will run correctly but with lower performance than native FP8 on Blackwell. If no emulation path exists, the compiler will diagnose an error.
+
+**Q: Can I target multiple architectures with a single Tile IR bytecode file?**
+
+A: Yes. Tile IR bytecode is architecture-independent. You can compile the same bytecode to different targets using `--gpu-name`. The driver will JIT-compile for the appropriate architecture at load time.
+
+**Q: Is Hopper (sm_90) support coming?**
+
+A: Hopper support is planned for a future release. It is not available in the 13.2 release cycle.
+
+**Q: What if a new Tile IR version introduces a required change to the bytecode format?**
+
+A: Required changes are always introduced with a new bytecode version number. Older drivers will detect the version mismatch and produce a clear error message. You can always target an older version using the version targeting feature.
+
+**Q: How do I ensure my program is portable across all supported architectures?**
+
+A: Stick to universal features (integer types, FP16, BF16, TF32, FP32, FP64) that are supported on all architectures. Avoid target-specific types like FP8 unless you have a fallback path. Use the hardware support matrix to check availability.
+
+### Compatibility Guarantee Summary
+
+The following table summarizes all compatibility guarantees provided by Tile IR:
+
+| Guarantee | Scope | Details |
+|-----------|-------|---------|
+| Bytecode backward compat | All versions | New drivers read old bytecode |
+| Bytecode forward compat | Minor versions | Old drivers gracefully handle new bytecode (skip unknown sections) |
+| Program portability | All supported targets | Same bytecode compiles to any supported architecture |
+| Semantic correctness | All targets | Operations produce correct results (within type precision) |
+| Execution determinism | Single toolchain + target + config | Same inputs produce same outputs |
+| Numerical stability | Per-version + per-target | Documented per operation; not guaranteed across versions/targets |
+| CUDA compatibility | Minor versions | Respects CUDA forward/backward minor-version rules |
+
+### Reporting Issues
+
+When reporting compatibility or stability issues, please include the following information:
+
+1. Tile IR version (major.minor.tag)
+2. Toolchain version (compiler + CTK version)
+3. Target architecture (`--gpu-name` value)
+4. GPU device and driver version
+5. Minimal reproducer program
+6. Expected vs. actual behavior
+7. Whether the issue is reproducible across different toolchain versions
