@@ -1,687 +1,674 @@
 # PyTorch Transforms - Comprehensive Reference
 
-This chapter covers data transforms for PyTorch, including torchvision transforms (v1 and v2 APIs), functional transforms, custom transforms, and integration patterns with data loading pipelines.
+This chapter covers all transform utilities in `torchvision.transforms`, including image transforms, composition, functional API, custom transforms, and the v2 transform API.
 
 ---
 
-## 1. torchvision.transforms Overview
+## 1. Common Image Transforms
 
-The `torchvision.transforms` module provides common image transformations for data augmentation and preprocessing. These are used with `torch.utils.data.DataLoader` to transform data on-the-fly during training.
+### Resize
 
-### Basic Pipeline
-
-```python
-from torchvision import transforms
-
-transform = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225]),
-])
-```
-
----
-
-## 2. Image Transforms (v1 API)
-
-### Geometric Transforms
-
-#### Resize(size, interpolation, max_size, antialias)
-
-Resizes the image to the given size.
+Resize the input image to the given size.
 
 ```python
-transforms.Resize(256)                                    # Shortest side to 256
-transforms.Resize((256, 256))                             # Exact height x width
-transforms.Resize(256, interpolation=transforms.InterpolationMode.BICUBIC)
-transforms.Resize(256, antialias=True)                    # Recommended for downscaling
-```
-
-**Parameters:**
-- `size` (int or sequence): Desired output size. If int, smaller edge matched; if sequence (h, w), exact size.
-- `interpolation` (InterpolationMode): `NEAREST`, `BILINEAR`, `BICUBIC` (default).
-- `max_size` (int): Maximum size of the longer edge.
-- `antialias` (bool): Whether to apply antialiasing (default True).
-
-#### CenterCrop(size)
-
-Crops the center of the image.
-
-```python
-transforms.CenterCrop(224)           # 224x224 center crop
-transforms.CenterCrop((300, 400))    # 300x400 center crop
-```
-
-#### RandomCrop(size, padding, pad_if_needed, fill, padding_mode)
-
-Crops the image at a random location.
-
-```python
-transforms.RandomCrop(224)
-transforms.RandomCrop(224, padding=4)                # Pad 4 pixels then crop
-transforms.RandomCrop(224, padding=4, padding_mode='reflect')
-transforms.RandomCrop(224, pad_if_needed=True)
-```
-
-**Parameters:**
-- `size` (int or sequence): Desired output size.
-- `padding` (int or sequence): Optional padding on each border.
-- `pad_if_needed` (bool): Pad if image is smaller than desired size.
-- `fill` (int or tuple): Pixel fill value for padding (default 0).
-- `padding_mode` (str): `constant`, `edge`, `reflect`, `symmetric`.
-
-#### RandomResizedCrop(size, scale, ratio, interpolation, antialias)
-
-Crops a random portion of the image and resizes it.
-
-```python
-transforms.RandomResizedCrop(224)
-transforms.RandomResizedCrop(
-    224,
-    scale=(0.08, 1.0),      # Random area of the crop
-    ratio=(3.0/4, 4.0/3),   # Random aspect ratio
-    interpolation=transforms.InterpolationMode.BICUBIC,
+torchvision.transforms.Resize(
+    size,                      # (int or sequence) desired output size
+    interpolation=InterpolationMode.BILINEAR,  # interpolation method
+    max_size=None,             # maximum allowed size for larger edge
+    antialias=True,            # whether to use antialiasing
 )
 ```
 
-#### RandomHorizontalFlip(p=0.5)
-
-Horizontally flips the image randomly with a given probability.
-
 ```python
-transforms.RandomHorizontalFlip(p=0.5)
+from torchvision import transforms
+from torchvision.transforms import InterpolationMode
+
+# Resize to fixed size (smaller edge matched, larger edge scaled proportionally)
+transform = transforms.Resize(256)
+
+# Resize to specific height x width
+transform = transforms.Resize((256, 256))
+
+# Resize with different interpolation modes
+transform = transforms.Resize(256, interpolation=InterpolationMode.BICUBIC)
+transform = transforms.Resize(256, interpolation=InterpolationMode.NEAREST)
+transform = transforms.Resize(256, interpolation=InterpolationMode.BILINEAR)
+transform = transforms.Resize(256, interpolation=InterpolationMode.LANCZOS)
+
+# With max_size constraint
+transform = transforms.Resize(256, max_size=512)
+
+# Apply to image
+from PIL import Image
+img = Image.open('photo.jpg')
+resized = transform(img)
 ```
 
-#### RandomVerticalFlip(p=0.5)
+### CenterCrop
 
-Vertically flips the image randomly.
+Crops the given image at the center to the given size.
 
 ```python
-transforms.RandomVerticalFlip(p=0.5)
+torchvision.transforms.CenterCrop(size)
 ```
 
-#### RandomAffine(degrees, translate, scale, shear, interpolation, fill)
-
-Random affine transformation of the image.
-
 ```python
-transforms.RandomAffine(degrees=30)                              # Rotation only
-transforms.RandomAffine(degrees=(-15, 15), translate=(0.1, 0.1))
-transforms.RandomAffine(degrees=0, scale=(0.8, 1.2))
-transforms.RandomAffine(degrees=0, shear=(-10, 10))
-transforms.RandomAffine(degrees=30, fill=128)                   # Fill color
+# Crop to 224x224 from center
+transform = transforms.CenterCrop(224)
+
+# Crop to specific height x width
+transform = transforms.CenterCrop((256, 128))
+
+# Crop to square from center
+transform = transforms.CenterCrop(224)
+img = Image.open('photo.jpg')
+cropped = transform(img)  # 224x224 center crop
 ```
 
-#### RandomRotation(degrees, interpolation, expand, center, fill)
+### RandomCrop
 
-Rotates the image by a random angle.
+Crop the image at a random location.
 
 ```python
-transforms.RandomRotation(30)                    # -30 to +30 degrees
-transforms.RandomRotation((-45, 45))             # Custom range
-transforms.RandomRotation(30, expand=True)       # Expand to fit rotated image
-transforms.RandomRotation(30, center=(112, 112)) # Custom center
+torchvision.transforms.RandomCrop(
+    size,            # (int or sequence) desired output size
+    padding=None,    # optional padding on each border
+    pad_if_needed=False,  # pad if image is smaller than size
+    fill=0,          # padding fill value
+    padding_mode='constant',  # 'constant', 'edge', 'reflect', 'symmetric'
+)
 ```
 
-#### RandomPerspective(distortion_scale, p, interpolation, fill)
-
-Performs a random perspective transformation.
-
 ```python
-transforms.RandomPerspective(distortion_scale=0.5, p=0.5)
+# Random 224x224 crop
+transform = transforms.RandomCrop(224)
+
+# With padding
+transform = transforms.RandomCrop(224, padding=4)
+
+# With reflection padding
+transform = transforms.RandomCrop(224, padding=4, padding_mode='reflect')
+
+# Random crop with padding and fill color
+transform = transforms.RandomCrop(224, padding=16, fill=128)
 ```
 
-#### RandomErasing(p, scale, ratio, value, inplace)
+### RandomResizedCrop
 
-Randomly selects a rectangle region and erases its pixels.
+Crop the image to a random size and aspect ratio, then resize to the given size.
 
 ```python
-transforms.RandomErasing(p=0.5, scale=(0.02, 0.33), ratio=(0.3, 3.3), value=0)
-transforms.RandomErasing(p=0.5, value='random')  # Random noise
+torchvision.transforms.RandomResizedCrop(
+    size,                       # expected output size
+    scale=(0.08, 1.0),         # range of fraction of area to crop
+    ratio=(0.75, 1.3333),      # range of aspect ratio
+    interpolation=InterpolationMode.BILINEAR,
+    antialias=True,
+)
 ```
 
-#### ElasticTransform(alpha, sigma, interpolation, fill)
-
-Applies elastic transformation (useful for medical imaging).
-
 ```python
-transforms.ElasticTransform(alpha=50.0, sigma=5.0)
+# Standard training augmentation (used in ImageNet training)
+transform = transforms.RandomResizedCrop(224)
+
+# More aggressive cropping
+transform = transforms.RandomResizedCrop(
+    224,
+    scale=(0.5, 1.0),    # Crop at least 50% of area
+    ratio=(0.75, 1.33),  # Near-square aspect ratios
+)
+
+# Less aggressive (useful for fine-grained tasks)
+transform = transforms.RandomResizedCrop(
+    224,
+    scale=(0.8, 1.0),    # Crop at least 80% of area
+)
 ```
 
-### Color Transforms
+### RandomHorizontalFlip
 
-#### ColorJitter(brightness, contrast, saturation, hue)
-
-Randomly changes brightness, contrast, saturation, and hue.
+Horizontally flip the image randomly with a given probability.
 
 ```python
-transforms.ColorJitter(brightness=0.2)
-transforms.ColorJitter(contrast=0.2)
-transforms.ColorJitter(saturation=0.2)
-transforms.ColorJitter(hue=0.1)
-transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1)
+torchvision.transforms.RandomHorizontalFlip(p=0.5)
 ```
 
-#### GaussianBlur(kernel_size, sigma)
-
-Adds Gaussian blur with random kernel size and sigma.
-
 ```python
-transforms.GaussianBlur(kernel_size=5)
-transforms.GaussianBlur(kernel_size=(3, 7), sigma=(0.1, 2.0))
+# 50% chance of horizontal flip
+transform = transforms.RandomHorizontalFlip(p=0.5)
+
+# Always flip
+transform = transforms.RandomHorizontalFlip(p=1.0)
+
+# Never flip (identity transform)
+transform = transforms.RandomHorizontalFlip(p=0.0)
 ```
 
-#### RandomGrayscale(p, num_output_channels)
+### RandomVerticalFlip
 
-Converts image to grayscale with probability p.
+Vertically flip the image randomly with a given probability.
 
 ```python
-transforms.RandomGrayscale(p=0.1)
-transforms.RandomGrayscale(p=0.1, num_output_channels=3)  # Keep 3 channels
+torchvision.transforms.RandomVerticalFlip(p=0.5)
 ```
 
-#### RandomInvert(p)
-
-Inverts the colors of the image.
-
 ```python
-transforms.RandomInvert(p=0.5)
+# For medical/satellite images where vertical flip makes sense
+transform = transforms.RandomVerticalFlip(p=0.5)
 ```
 
-#### RandomPosterize(bits, p)
+### RandomRotation
 
-Posterizes the image by reducing bit depth.
+Rotate the image by a random angle.
 
 ```python
-transforms.RandomPosterize(bits=4, p=0.5)
+torchvision.transforms.RandomRotation(
+    degrees,           # range of rotation in degrees
+    interpolation=InterpolationMode.NEAREST,
+    expand=False,      # whether to expand the output
+    center=None,       # center of rotation
+    fill=0,            # fill value for new pixels
+)
 ```
 
-#### RandomSolarize(threshold, p)
-
-Solarizes the image by inverting pixels above a threshold.
-
 ```python
-transforms.RandomSolarize(threshold=128, p=0.5)
+# Rotate by up to 10 degrees in either direction
+transform = transforms.RandomRotation(10)
+
+# Rotate by 30 to 90 degrees
+transform = transforms.RandomRotation((30, 90))
+
+# Rotate with expansion to avoid cutting off content
+transform = transforms.RandomRotation(15, expand=True)
+
+# Rotate around a specific center
+transform = transforms.RandomRotation(10, center=(100, 100))
 ```
 
-#### RandomAdjustSharpness(sharpness_factor, p)
+### ColorJitter
 
-Adjusts the sharpness of the image.
+Randomly change the brightness, contrast, saturation, and hue of an image.
 
 ```python
-transforms.RandomAdjustSharpness(sharpness_factor=2.0, p=0.5)
+torchvision.transforms.ColorJitter(
+    brightness=0,    # How much to jitter brightness
+    contrast=0,      # How much to jitter contrast
+    saturation=0,    # How much to jitter saturation
+    hue=0,           # How much to jitter hue
+)
 ```
 
-#### RandomAutoContrast(p)
-
-Applies auto-contrast.
-
 ```python
-transforms.RandomAutoContrast(p=0.5)
+# Standard ImageNet augmentation
+transform = transforms.ColorJitter(
+    brightness=0.4,
+    contrast=0.4,
+    saturation=0.4,
+    hue=0.1,
+)
+
+# Only brightness and contrast
+transform = transforms.ColorJitter(brightness=0.2, contrast=0.2)
+
+# Aggressive color augmentation
+transform = transforms.ColorJitter(
+    brightness=0.5,
+    contrast=0.5,
+    saturation=0.5,
+    hue=0.2,
+)
 ```
 
-#### RandomEqualize(p)
+### Normalize
 
-Equalizes the image histogram.
+Normalize a tensor image with mean and standard deviation.
 
 ```python
-transforms.RandomEqualize(p=0.5)
+torchvision.transforms.Normalize(
+    mean,     # sequence of means for each channel
+    std,      # sequence of standard deviations for each channel
+    inplace=False,
+)
 ```
 
-### Conversion Transforms
-
-#### ToTensor
-
-Converts a PIL Image or NumPy ndarray to a tensor. Scales pixel values from [0, 255] to [0.0, 1.0].
-
 ```python
-transforms.ToTensor()
-```
-
-**Note:** In v2, `ToTensor` is deprecated. Use `v2.ToImage()` followed by `v2.ToDtype()`.
-
-#### PILToTensor
-
-Converts a PIL Image to a tensor without scaling.
-
-```python
-transforms.PILToTensor()
-```
-
-#### ConvertImageDtype(dtype)
-
-Converts tensor image to the given dtype and scales values appropriately.
-
-```python
-transforms.ConvertImageDtype(torch.float32)
-```
-
-### Normalization
-
-#### Normalize(mean, std, inplace)
-
-Normalizes a tensor image with mean and standard deviation.
-
-```python
-# ImageNet normalization
-transforms.Normalize(
+# ImageNet normalization (MUST apply after ToTensor)
+transform = transforms.Normalize(
     mean=[0.485, 0.456, 0.406],
     std=[0.229, 0.224, 0.225],
 )
 
-# Per-channel normalization
-transforms.Normalize(
-    mean=[0.5, 0.5, 0.5],
-    std=[0.5, 0.5, 0.5],
+# For single-channel images (grayscale)
+transform = transforms.Normalize(mean=[0.5], std=[0.5])
+
+# Custom normalization (compute from your dataset)
+# mean = dataset.mean(axis=(0, 2, 3))
+# std = dataset.std(axis=(0, 2, 3))
+transform = transforms.Normalize(mean=computed_mean, std=computed_std)
+```
+
+### ToTensor
+
+Convert a PIL Image or numpy ndarray to tensor. Scales pixel values from [0, 255] to [0.0, 1.0].
+
+```python
+torchvision.transforms.ToTensor()
+```
+
+```python
+from PIL import Image
+import numpy as np
+
+# Convert PIL Image to tensor
+img = Image.open('photo.jpg')  # PIL Image HWC [0, 255]
+transform = transforms.ToTensor()
+tensor = transform(img)  # Tensor CHW [0.0, 1.0], float32
+
+# Convert numpy array to tensor
+arr = np.array(img)  # HWC uint8
+tensor = transform(arr)  # CHW float32 [0.0, 1.0]
+```
+
+**Note:** `ToTensor` is deprecated in v2 transforms. Use `v2.ToImage()` followed by `v2.ToDtype(torch.float32, scale=True)` instead.
+
+### ConvertImageDtype
+
+Convert a tensor image to the given dtype, scaling values appropriately.
+
+```python
+torchvision.transforms.ConvertImageDtype(dtype)
+```
+
+```python
+# Convert from uint8 [0, 255] to float32 [0.0, 1.0]
+transform = transforms.ConvertImageDtype(torch.float32)
+
+# Convert from float32 to uint8
+transform = transforms.ConvertImageDtype(torch.uint8)
+```
+
+### Grayscale
+
+Convert image to grayscale.
+
+```python
+torchvision.transforms.Grayscale(num_output_channels=1)
+```
+
+```python
+# Single channel grayscale
+transform = transforms.Grayscale(num_output_channels=1)
+
+# Three channel grayscale (useful for pretrained models)
+transform = transforms.Grayscale(num_output_channels=3)
+```
+
+### RandomGrayscale
+
+Randomly convert image to grayscale.
+
+```python
+torchvision.transforms.RandomGrayscale(p=0.1)
+```
+
+```python
+# 10% chance to convert to grayscale
+transform = transforms.RandomGrayscale(p=0.1)
+```
+
+### GaussianBlur
+
+Blur image with randomly chosen Gaussian blur.
+
+```python
+torchvision.transforms.GaussianBlur(
+    kernel_size,          # Size of the Gaussian kernel
+    sigma=(0.1, 2.0),    # Range for random sigma
 )
 ```
 
-**Formula:** `output = (input - mean) / std`
-
-### Composition Transforms
-
-#### Compose(transforms)
-
-Composes several transforms together.
-
 ```python
-transform = transforms.Compose([
-    transforms.Resize(256),
-    transforms.RandomCrop(224),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225]),
-])
+# Gaussian blur with 5x5 kernel
+transform = transforms.GaussianBlur(kernel_size=5)
+
+# With sigma range
+transform = transforms.GaussianBlur(kernel_size=(3, 5), sigma=(0.1, 2.0))
 ```
 
-#### RandomApply(transforms, p)
+### RandomAffine
 
-Applies a list of transforms randomly with a given probability.
+Random affine transformation of the image.
 
 ```python
-transforms.RandomApply([
-    transforms.ColorJitter(brightness=0.2, contrast=0.2),
-], p=0.5)
+torchvision.transforms.RandomAffine(
+    degrees,            # Range of rotation
+    translate=None,     # Range of horizontal and vertical translations
+    scale=None,         # Range of scaling factor
+    shear=None,         # Range of shear
+    interpolation=InterpolationMode.NEAREST,
+    fill=0,
+    center=None,
+)
 ```
 
-#### RandomChoice(transforms)
-
-Applies a single transform randomly picked from a list.
-
 ```python
-transforms.RandomChoice([
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomVerticalFlip(),
-])
+# Random affine with rotation, translation, and scaling
+transform = transforms.RandomAffine(
+    degrees=10,
+    translate=(0.1, 0.1),
+    scale=(0.9, 1.1),
+)
+
+# With shear
+transform = transforms.RandomAffine(
+    degrees=15,
+    shear=10,
+)
 ```
 
-#### RandomOrder(transforms)
+### RandomPerspective
 
-Applies transforms in a random order.
+Perform a random perspective transformation.
 
 ```python
-transforms.RandomOrder([
-    transforms.RandomRotation(30),
-    transforms.ColorJitter(0.2),
-    transforms.GaussianBlur(5),
-])
+torchvision.transforms.RandomPerspective(
+    distortion_scale=0.5,  # How much to distort
+    p=0.5,                 # probability
+    interpolation=InterpolationMode.BILINEAR,
+    fill=0,
+)
 ```
 
-### Linear Transformation
+```python
+# Random perspective distortion
+transform = transforms.RandomPerspective(
+    distortion_scale=0.5,
+    p=0.5,
+)
+```
 
-#### LinearTransformation(transformation_matrix, mean_vector)
+### RandomErasing
 
-Applies a linear transformation to the image (e.g., ZCA whitening).
+Randomly select a rectangle region in an image and erase its pixels.
 
 ```python
-# ZCA whitening
-transform = transforms.LinearTransformation(
-    transformation_matrix=zca_matrix,  # Computed from training data
-    mean_vector=mean_vector,
+torchvision.transforms.RandomErasing(
+    p=0.5,                  # probability of erasing
+    scale=(0.02, 0.33),    # range of area ratio
+    ratio=(0.3, 3.3),      # range of aspect ratio
+    value=0,                # erasing value (int, str, or sequence)
+    inplace=False,
+)
+```
+
+```python
+# Random erasing (applied to tensor, not PIL Image)
+transform = transforms.RandomErasing(p=0.5, value='random')  # random noise
+
+# Erase with specific value
+transform = transforms.RandomErasing(p=0.5, value=0)  # black
+
+# Erase with mean value
+transform = transforms.RandomErasing(p=0.5, value=(0.485, 0.456, 0.406))
+```
+
+### Pad
+
+Pad the image on all sides.
+
+```python
+torchvision.transforms.Pad(
+    padding,                    # padding on each border
+    fill=0,                     # fill value
+    padding_mode='constant',    # 'constant', 'edge', 'reflect', 'symmetric'
+)
+```
+
+```python
+# Pad all sides by 4 pixels
+transform = transforms.Pad(4)
+
+# Pad each side differently: (left, top, right, bottom)
+transform = transforms.Pad((4, 8, 4, 8))
+
+# Reflective padding
+transform = transforms.Pad(4, padding_mode='reflect')
+```
+
+### Lambda
+
+Apply a user-defined lambda as a transform.
+
+```python
+torchvision.transforms.Lambda(lambd)
+```
+
+```python
+# Apply custom function as transform
+transform = transforms.Lambda(
+    lambda x: x.rotate(90) if random.random() > 0.5 else x
 )
 ```
 
 ---
 
-## 3. Functional Transforms (torchvision.transforms.functional)
+## 2. Transform Composition
 
-Functional transforms operate on tensors or PIL images directly without creating transform objects. They are useful for custom augmentation logic.
+### Compose
+
+Composes several transforms together.
+
+```python
+torchvision.transforms.Compose(transforms)
+```
+
+```python
+# Standard ImageNet training transform pipeline
+train_transform = transforms.Compose([
+    transforms.RandomResizedCrop(224),
+    transforms.RandomHorizontalFlip(),
+    transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225]),
+])
+
+# Validation transform pipeline (no augmentation)
+val_transform = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225]),
+])
+
+# Apply
+img = Image.open('photo.jpg')
+augmented = train_transform(img)
+```
+
+### RandomApply
+
+Apply a list of transformations randomly with a given probability.
+
+```python
+torchvision.transforms.RandomApply(
+    transforms,     # list of transforms
+    p=0.5,          # probability of applying
+)
+```
+
+```python
+# 50% chance of applying a sequence of color transforms
+transform = transforms.RandomApply([
+    transforms.ColorJitter(brightness=0.4, contrast=0.4),
+    transforms.RandomGrayscale(p=0.2),
+], p=0.5)
+
+# Apply blur with 30% probability
+transform = transforms.RandomApply([
+    transforms.GaussianBlur(kernel_size=5),
+], p=0.3)
+```
+
+### RandomChoice
+
+Apply single transformation randomly picked from a list.
+
+```python
+torchvision.transforms.RandomChoice(transforms)
+```
+
+```python
+# Apply exactly one of these transforms
+transform = transforms.RandomChoice([
+    transforms.RandomHorizontalFlip(p=1.0),
+    transforms.RandomVerticalFlip(p=1.0),
+    transforms.RandomRotation(90),
+])
+```
+
+### RandomOrder
+
+Apply a list of transformations in a random order.
+
+```python
+torchvision.transforms.RandomOrder(transforms)
+```
+
+```python
+# Apply all transforms but in random order
+transform = transforms.RandomOrder([
+    transforms.RandomCrop(224),
+    transforms.RandomHorizontalFlip(),
+    transforms.ColorJitter(brightness=0.2),
+])
+```
+
+---
+
+## 3. Functional Transforms
+
+Functional transforms operate on tensors or PIL images directly without wrapping them in a class. They are the building blocks for class-based transforms.
 
 ```python
 import torchvision.transforms.functional as F
 ```
 
-### Image Operations
+### Core Functional Transforms
 
 ```python
+from torchvision.transforms.functional import (
+    resize, center_crop, crop, random_crop,
+    hflip, vflip, rotate, affine, perspective,
+    adjust_brightness, adjust_contrast, adjust_saturation, adjust_hue, adjust_sharpness,
+    normalize, to_tensor, to_pil_image,
+    pad, gaussian_blur, invert, posterize, solarize, equalize,
+    elastic_transform, five_crop, ten_crop,
+)
+```
+
+### Example Usage
+
+```python
+import torchvision.transforms.functional as F
+import torch
+
 # Resize
-resized = F.resize(img, size=[256], interpolation=F.InterpolationMode.BICUBIC)
+img_tensor = F.resize(img_tensor, size=[224, 224])
 
 # Center crop
-cropped = F.center_crop(img, output_size=[224])
+img_tensor = F.center_crop(img_tensor, output_size=[224, 224])
 
-# Random crop (requires explicit parameters)
-cropped, top, left = F.crop(img, top=10, left=10, height=224, width=224)
-
-# Horizontal/Vertical flip
-flipped = F.hflip(img)
-flipped = F.vflip(img)
-
-# Rotate
-rotated = F.rotate(img, angle=45)
-
-# Affine
-affined = F.affine(img, angle=0, translate=[10, 10], scale=1.0, shear=[0])
-
-# Perspective
-perspectived = F.perspective(img, startpoints, endpoints)
+# Horizontal flip
+img_tensor = F.hflip(img_tensor)
 
 # Normalize
-normalized = F.normalize(tensor, mean=[0.485, 0.456, 0.406],
-                          std=[0.229, 0.224, 0.225])
+img_tensor = F.normalize(
+    img_tensor,
+    mean=[0.485, 0.456, 0.406],
+    std=[0.229, 0.224, 0.225],
+)
 
-# Adjust brightness/contrast/saturation/hue
-bright = F.adjust_brightness(img, brightness_factor=1.5)
-contrast = F.adjust_contrast(img, contrast_factor=2.0)
-saturated = F.adjust_saturation(img, saturation_factor=0.5)
-hued = F.adjust_hue(img, hue_factor=0.1)
+# Adjust brightness (factor > 1 brightens, < 1 darkens)
+img_tensor = F.adjust_brightness(img_tensor, brightness_factor=1.5)
+
+# Adjust contrast
+img_tensor = F.adjust_contrast(img_tensor, contrast_factor=1.2)
+
+# Adjust saturation
+img_tensor = F.adjust_saturation(img_tensor, saturation_factor=0.8)
+
+# Adjust hue (factor in [-0.5, 0.5])
+img_tensor = F.adjust_hue(img_tensor, hue_factor=0.1)
 
 # Gaussian blur
-blurred = F.gaussian_blur(img, kernel_size=[5, 5])
+img_tensor = F.gaussian_blur(img_tensor, kernel_size=[5, 5])
 
-# Convert
-tensor = F.to_tensor(img)
-pil = F.to_pil_image(tensor)
+# Convert between formats
+pil_img = F.to_pil_image(img_tensor)
+tensor_img = F.to_tensor(pil_img)
+
+# Rotation
+img_tensor = F.rotate(img_tensor, angle=30.0)
+
+# Affine transformation
+img_tensor = F.affine(
+    img_tensor,
+    angle=0.0,
+    translate=[10, 20],
+    scale=1.0,
+    shear=[0.0, 0.0],
+)
+
+# Perspective transform
+img_tensor = F.perspective(img_tensor, startpoints, endpoints)
+
+# Five crop (returns tuple of 5 crops: 4 corners + center)
+crops = F.five_crop(img_tensor, size=[224, 224])
+
+# Ten crop (5 crops + their horizontal flips)
+crops = F.ten_crop(img_tensor, size=[224, 224])
 
 # Pad
-padded = F.pad(img, padding=4, fill=0, padding_mode='constant')
+img_tensor = F.pad(img_tensor, padding=4, fill=0)
 
-# Crop
-cropped = F.crop(img, top=0, left=0, height=224, width=224)
-
-# Erase
-erased = F.erase(img, i=10, j=10, h=50, w=50, v=0)
+# Elastic transform
+img_tensor = F.elastic_transform(
+    img_tensor,
+    displacement=displacement_map,
+    interpolation=F.InterpolationMode.BILINEAR,
+)
 ```
 
-### Functional with Bounding Boxes and Masks
+### Functional Transform with Bounding Boxes
 
 ```python
-# Bounding box operations (v2)
-from torchvision.transforms import v2 as T_v2
+import torchvision.transforms.functional as F
 
-# These also transform bounding boxes and masks:
-cropped = T_v2.RandomCrop(224)
-resized = T_v2.Resize(256)
-flipped = T_v2.RandomHorizontalFlip()
+def transform_with_bbox(image, bbox):
+    """Apply transform to image and adjust bounding box accordingly."""
+    # Horizontal flip both image and bbox
+    if random.random() > 0.5:
+        image = F.hflip(image)
+        bbox[0], bbox[2] = image.width - bbox[2], image.width - bbox[0]
+
+    # Resize both
+    old_w, old_h = image.width, image.height
+    image = F.resize(image, size=[224, 224])
+    scale_x = 224.0 / old_w
+    scale_y = 224.0 / old_h
+    bbox[0] *= scale_x
+    bbox[1] *= scale_y
+    bbox[2] *= scale_x
+    bbox[3] *= scale_y
+
+    return image, bbox
 ```
 
 ---
 
-## 4. v2 Transforms API
-
-The v2 API (introduced in torchvision 0.15) provides several improvements:
-
-1. **Support for videos, bounding boxes, masks, and key points** in addition to images.
-2. **Better performance** through native tensor operations.
-3. **Simplified pipeline** with fewer transforms needed.
-
-### v2 Transform Classes
-
-```python
-from torchvision.transforms import v2
-
-transform = v2.Compose([
-    v2.ToImage(),                           # Convert to tv_tensors.Image
-    v2.RandomResizedCrop(224, antialias=True),
-    v2.RandomHorizontalFlip(p=0.5),
-    v2.RandomAutoContrast(p=0.2),
-    v2.ToDtype(torch.float32, scale=True),  # Scale [0,255] -> [0,1]
-    v2.Normalize(mean=[0.485, 0.456, 0.406],
-                 std=[0.229, 0.224, 0.225]),
-])
-```
-
-### v2 with Bounding Boxes and Masks
-
-```python
-from torchvision.transforms import v2
-from torchvision import tv_tensors
-
-# v2 transforms handle bounding boxes and masks correctly
-transform = v2.Compose([
-    v2.RandomResizedCrop(224, antialias=True),
-    v2.RandomHorizontalFlip(p=0.5),
-    v2.ToDtype(torch.float32, scale=True),
-    v2.Normalize(mean=[0.485, 0.456, 0.406],
-                 std=[0.229, 0.224, 0.225]),
-])
-
-# Apply to image + bboxes + mask
-image = tv_tensors.Image(torch.rand(3, 300, 400))
-bboxes = tv_tensors.BoundingBoxes(
-    [[10, 20, 100, 200], [50, 60, 150, 250]],
-    format=tv_tensors.BoundingBoxFormat.XYXY,
-    canvas_size=(300, 400),
-)
-mask = tv_tensors.Mask(torch.randint(0, 2, (300, 400)))
-
-# All are transformed consistently
-image_t, bboxes_t, mask_t = transform(image, bboxes, mask)
-```
-
-### v2 CutMix and MixUp
-
-```python
-from torchvision.transforms import v2
-
-cutmix = v2.CutMix(num_classes=10, alpha=1.0)
-mixup = v2.MixUp(num_classes=10, alpha=0.2)
-
-# Apply in DataLoader collate_fn
-def collate_fn(batch):
-    images, labels = zip(*batch)
-    images = torch.stack(images)
-    labels = torch.tensor(labels)
-    images, labels = cutmix(images, labels)
-    return images, labels
-```
-
-### v2 AutoAugment Policies
-
-```python
-from torchvision.transforms import v2
-
-# AutoAugment with ImageNet policy
-transform = v2.AutoAugment(v2.AutoAugmentPolicy.IMAGENET)
-
-# RandAugment
-transform = v2.RandAugment(num_ops=2, magnitude=9)
-
-# TrivialAugmentWide
-transform = v2.TrivialAugmentWide()
-
-# AugMix
-transform = v2.AugMix(severity=3, mixture_width=3, chain_depth=-1)
-```
-
----
-
-## 5. Text Transforms
-
-PyTorch does not include built-in text transforms in torchvision, but common patterns are used with the torchtext library.
-
-### Tokenization and Vocabulary
-
-```python
-# Using torchtext (common PyTorch ecosystem pattern)
-from torchtext.data.utils import get_tokenizer
-from torchtext.vocab import build_vocab_from_iterator
-
-tokenizer = get_tokenizer('basic_english')
-vocab = build_vocab_from_iterator(
-    [tokenizer(text) for text in corpus],
-    specials=['<unk>', '<pad>', '<bos>', '<eos>'],
-)
-vocab.set_default_index(vocab['<unk>'])
-
-# Custom text transform
-class TextTransform:
-    def __init__(self, vocab, tokenizer, max_len=256):
-        self.vocab = vocab
-        self.tokenizer = tokenizer
-        self.max_len = max_len
-
-    def __call__(self, text):
-        tokens = self.tokenizer(text)[:self.max_len]
-        indices = [self.vocab['<bos>']] + \
-                  [self.vocab[t] for t in tokens] + \
-                  [self.vocab['<eos>']]
-        return torch.tensor(indices, dtype=torch.long)
-```
-
-### Custom Text Pipeline
-
-```python
-class TextPipeline:
-    def __init__(self, vocab, tokenizer, max_length=128):
-        self.vocab = vocab
-        self.tokenizer = tokenizer
-        self.max_length = max_length
-
-    def __call__(self, text):
-        tokens = self.tokenizer(text)
-        # Truncate
-        tokens = tokens[:self.max_length - 2]
-        # Add special tokens
-        token_ids = (
-            [self.vocab['<bos>']]
-            + [self.vocab.get(t, self.vocab['<unk>']) for t in tokens]
-            + [self.vocab['<eos>']]
-        )
-        # Pad
-        padding_length = self.max_length - len(token_ids)
-        token_ids = token_ids + [self.vocab['<pad>']] * padding_length
-        # Attention mask
-        mask = [1] * (len(tokens) + 2) + [0] * padding_length
-        return {
-            'input_ids': torch.tensor(token_ids),
-            'attention_mask': torch.tensor(mask),
-        }
-```
-
----
-
-## 6. Audio Transforms
-
-Audio transforms are available through torchaudio, the PyTorch audio library.
-
-### Spectrogram Transforms
-
-```python
-import torchaudio.transforms as T
-
-# Spectrogram
-spec_transform = T.Spectrogram(
-    n_fft=1024,
-    win_length=1024,
-    hop_length=512,
-    power=2.0,
-)
-
-# Mel Spectrogram
-mel_transform = T.MelSpectrogram(
-    sample_rate=16000,
-    n_fft=1024,
-    win_length=1024,
-    hop_length=512,
-    n_mels=80,
-    f_min=0.0,
-    f_max=8000.0,
-)
-
-# MFCC
-mfcc_transform = T.MFCC(
-    sample_rate=16000,
-    n_mfcc=40,
-    melkwargs={
-        'n_fft': 1024,
-        'n_mels': 80,
-        'hop_length': 512,
-    },
-)
-
-# Amplitude to DB
-amp_to_db = T.AmplitudeToDB(stype='power', top_db=80)
-
-# Mu-law encoding/decoding
-mu_law_encode = T.MuLawEncoding(quantization_channels=256)
-mu_law_decode = T.MuLawDecoding(quantization_channels=256)
-```
-
-### Audio Augmentation
-
-```python
-import torchaudio.transforms as T
-
-# Frequency Masking (SpecAugment)
-freq_mask = T.FrequencyMasking(freq_mask_param=30)
-
-# Time Masking (SpecAugment)
-time_mask = T.TimeMasking(time_mask_param=100)
-
-# Time Stretch
-time_stretch = T.TimeStretch(
-    hop_length=512,
-    n_freq=513,
-    fixed_rate=1.2,
-)
-
-# Pitch Shift
-pitch_shift = T.PitchShift(
-    sample_rate=16000,
-    n_steps=4,
-)
-
-# Resampling
-resample = T.Resample(
-    orig_freq=44100,
-    new_freq=16000,
-    resampling_method='sinc_interpolation',
-)
-
-# Vad (Voice Activity Detection)
-vad = T.Vad(sample_rate=16000)
-```
-
-### Audio Transform Pipeline
-
-```python
-class AudioTransformPipeline:
-    def __init__(self, sample_rate=16000, n_mels=80):
-        self.spectrogram = T.MelSpectrogram(
-            sample_rate=sample_rate,
-            n_fft=1024,
-            hop_length=512,
-            n_mels=n_mels,
-        )
-        self.amp_to_db = T.AmplitudeToDB()
-        self.freq_mask = T.FrequencyMasking(freq_mask_param=30)
-        self.time_mask = T.TimeMasking(time_mask_param=100)
-
-    def __call__(self, waveform, augment=False):
-        spec = self.amp_to_db(self.spectrogram(waveform))
-        if augment:
-            spec = self.freq_mask(spec)
-            spec = self.time_mask(spec)
-        return spec
-```
-
----
-
-## 7. Custom Transforms
+## 4. Custom Transforms
 
 ### Basic Custom Transform
 
@@ -694,34 +681,23 @@ class AddGaussianNoise:
         self.std = std
 
     def __call__(self, tensor):
-        return tensor + torch.randn_like(tensor) * self.std + self.mean
+        return tensor + torch.randn(tensor.size()) * self.std + self.mean
 
     def __repr__(self):
         return f'{self.__class__.__name__}(mean={self.mean}, std={self.std})'
+
+# Usage
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5], std=[0.5]),
+    AddGaussianNoise(mean=0.0, std=0.05),
+])
 ```
 
 ### Custom Transform with Random State
 
 ```python
-class RandomGaussianBlur:
-    """Gaussian blur with configurable probability."""
-
-    def __init__(self, kernel_size=5, sigma=(0.1, 2.0), p=0.5):
-        self.kernel_size = kernel_size
-        self.sigma = sigma
-        self.p = p
-
-    def __call__(self, img):
-        if torch.rand(1) < self.p:
-            sigma = torch.uniform(self.sigma[0], self.sigma[1]).item()
-            return F.gaussian_blur(img, [self.kernel_size, self.kernel_size], [sigma])
-        return img
-```
-
-### Custom Transform with Parameters
-
-```python
-class Cutout:
+class RandomCutout:
     """Random cutout augmentation."""
 
     def __init__(self, n_holes=1, length=16):
@@ -731,86 +707,378 @@ class Cutout:
     def __call__(self, img):
         """
         Args:
-            img (Tensor): Image tensor of shape (C, H, W).
+            img (Tensor): Image tensor of shape (C, H, W)
         Returns:
-            Tensor: Image with cutout applied.
+            Tensor: Image with cutout applied
         """
-        h, w = img.shape[1], img.shape[2]
+        h, w = img.size(1), img.size(2)
         mask = torch.ones((h, w), dtype=torch.float32)
 
         for _ in range(self.n_holes):
             y = torch.randint(0, h, (1,)).item()
             x = torch.randint(0, w, (1,)).item()
+
             y1 = max(0, y - self.length // 2)
             y2 = min(h, y + self.length // 2)
             x1 = max(0, x - self.length // 2)
             x2 = min(w, x + self.length // 2)
-            mask[y1:y2, x1:x2] = 0
+
+            mask[y1:y2, x1:x2] = 0.0
 
         mask = mask.expand_as(img)
         return img * mask
 ```
 
-### Lambda Transform
+### Custom Transform with Parameters
 
 ```python
-# Inline transform using Lambda
-transform = transforms.Lambda(lambda x: x * 2.0 + 0.5)
+class MixUp:
+    """Apply MixUp augmentation to a batch."""
 
-# With a function
-def normalize_range(tensor):
-    return (tensor - tensor.min()) / (tensor.max() - tensor.min() + 1e-8)
+    def __init__(self, alpha=0.2):
+        self.alpha = alpha
 
-transform = transforms.Lambda(normalize_range)
+    def __call__(self, batch_x, batch_y):
+        """Apply MixUp to a batch."""
+        if self.alpha > 0:
+            lam = np.random.beta(self.alpha, self.alpha)
+        else:
+            lam = 1.0
+
+        batch_size = batch_x.size(0)
+        index = torch.randperm(batch_size)
+
+        mixed_x = lam * batch_x + (1 - lam) * batch_x[index]
+        y_a, y_b = batch_y, batch_y[index]
+
+        return mixed_x, y_a, y_b, lam
 ```
 
-### Stateful Transform
+### Custom Transform for Multi-Modal Data
 
 ```python
-class RunningNormalize:
-    """Normalize using running statistics (no pre-computed mean/std)."""
+class MultiModalTransform:
+    """Transform that operates on multiple modalities simultaneously."""
 
-    def __init__(self, num_features, momentum=0.1):
-        self.momentum = momentum
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.num_batches_tracked = 0
+    def __init__(self, image_transform=None, text_transform=None):
+        self.image_transform = image_transform
+        self.text_transform = text_transform
 
-    def __call__(self, tensor):
-        if self.training:
-            mean = tensor.mean(dim=0)
-            var = tensor.var(dim=0, unbiased=False)
-            self.running_mean = (1 - self.momentum) * self.running_mean + \
-                                self.momentum * mean
-            self.running_var = (1 - self.momentum) * self.running_var + \
-                               self.momentum * var
-            self.num_batches_tracked += 1
-        return (tensor - self.running_mean) / torch.sqrt(self.running_var + 1e-5)
+    def __call__(self, sample):
+        if self.image_transform and 'image' in sample:
+            sample['image'] = self.image_transform(sample['image'])
+        if self.text_transform and 'text' in sample:
+            sample['text'] = self.text_transform(sample['text'])
+        return sample
 ```
 
 ---
 
-## 8. Transform Pipelines and Augmentation Strategies
+## 5. v2 Transforms
 
-### Standard Training Pipeline
+The v2 transforms API introduces a unified interface that works with images, bounding boxes, masks, and keypoints simultaneously.
+
+### Importing v2
 
 ```python
-train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(224, scale=(0.08, 1.0)),
-    transforms.RandomHorizontalFlip(),
-    transforms.ColorJitter(brightness=0.4, contrast=0.4,
-                           saturation=0.4, hue=0.1),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225]),
+from torchvision.transforms import v2
+
+# Or import specific transforms
+from torchvision.transforms.v2 import (
+    Compose, Resize, CenterCrop, RandomCrop,
+    RandomResizedCrop, RandomHorizontalFlip, RandomVerticalFlip,
+    RandomRotation, ColorJitter, Normalize, ToImage, ToDtype,
+    RandomApply, RandomChoice, RandomOrder,
+    GaussianBlur, RandomErasing, Pad,
+    SanitizeBoundingBoxes,
+)
+```
+
+### v2 Transform Pipeline
+
+```python
+from torchvision.transforms import v2
+
+# v2 pipeline for classification
+transforms_v2 = v2.Compose([
+    v2.ToImage(),                              # Convert to tv_tensors.Image
+    v2.Resize((256, 256)),                     # Resize
+    v2.RandomCrop((224, 224)),                 # Random crop
+    v2.RandomHorizontalFlip(),                 # Flip
+    v2.ToDtype(torch.float32, scale=True),     # Convert to float, scale [0,255] -> [0,1]
+    v2.Normalize(mean=[0.485, 0.456, 0.406],
+                 std=[0.229, 0.224, 0.225]),   # Normalize
+])
+```
+
+### v2 with Bounding Boxes and Masks
+
+```python
+from torchvision.transforms import v2
+from torchvision import tv_tensors
+
+# Define transforms that work on images, bounding boxes, and masks
+transforms_v2 = v2.Compose([
+    v2.ToImage(),
+    v2.RandomResizedCrop((224, 224), antialias=True),
+    v2.RandomHorizontalFlip(p=0.5),
+    v2.ToDtype(torch.float32, scale=True),
+    v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    v2.SanitizeBoundingBoxes(),  # Remove degenerate boxes after transforms
 ])
 
+# Apply to image + bounding boxes + masks
+image = tv_tensors.Image(torch.randn(3, 256, 256))
+bboxes = tv_tensors.BoundingBoxes(
+    [[10, 20, 100, 200], [50, 60, 150, 250]],
+    format=tv_tensors.BoundingBoxFormat.XYXY,
+    canvas_size=(256, 256),
+)
+mask = tv_tensors.Mask(torch.randint(0, 2, (256, 256)))
+
+# Transform all simultaneously
+img_out, bbox_out, mask_out = transforms_v2(image, bboxes, mask)
+```
+
+### v2 Detection Pipeline
+
+```python
+from torchvision.transforms import v2
+from torchvision import tv_tensors
+
+# Detection-specific transform pipeline
+train_transforms = v2.Compose([
+    v2.ToImage(),
+    v2.RandomPhotometricDistort(p=0.5),
+    v2.RandomZoomOut(fill={tv_tensors.Image: (124, 116, 104), tv_tensors.Mask: 0}),
+    v2.RandomIoUCrop(),
+    v2.RandomHorizontalFlip(p=0.5),
+    v2.SanitizeBoundingBoxes(min_size=1),
+    v2.ToDtype(torch.float32, scale=True),
+    v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+
+# Video transform pipeline (5D tensors)
+video_transforms = v2.Compose([
+    v2.ToImage(),
+    v2.Resize((256, 256)),
+    v2.RandomCrop((224, 224)),
+    v2.RandomHorizontalFlip(),
+    v2.ToDtype(torch.float32, scale=True),
+    v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+```
+
+### v2-Specific Transforms
+
+```python
+# RandomShortestSize (resize shorter edge to random value)
+transform = v2.RandomShortestSize(
+    min_size=(480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800),
+    max_size=1333,
+)
+
+# RandomIoUCrop (crop based on IoU with bounding boxes)
+transform = v2.RandomIoUCrop()
+
+# RandomPhotometricDistort (randomly change color properties)
+transform = v2.RandomPhotometricDistort(
+    brightness=(0.875, 1.125),
+    contrast=(0.5, 1.5),
+    saturation=(0.5, 1.5),
+    hue=(-0.05, 0.05),
+    p=0.5,
+)
+
+# ScaleJitter (randomly resize with jitter)
+transform = v2.ScaleJitter(
+    target_size=(512, 512),
+    scale_range=(0.1, 2.0),
+)
+
+# RandomZoomOut (zoom out by placing image on larger canvas)
+transform = v2.RandomZoomOut(
+    fill={tv_tensors.Image: (124, 116, 104)},
+    side_range=(1.0, 4.0),
+    p=0.5,
+)
+```
+
+---
+
+## 6. Audio Transform Patterns
+
+While `torchvision.transforms` focuses on images, similar patterns apply to audio using `torchaudio.transforms`.
+
+```python
+import torchaudio.transforms as T
+
+# Spectrogram
+spectrogram = T.Spectrogram(
+    n_fft=1024,            # Size of FFT
+    win_length=None,       # Window size (defaults to n_fft)
+    hop_length=None,       # Hop length (defaults to win_length // 2)
+    pad_mode='reflect',    # Padding mode
+    power=2.0,             # Exponent for the magnitude (2.0 = power spectrogram)
+)
+
+# Mel Spectrogram
+mel_spectrogram = T.MelSpectrogram(
+    sample_rate=16000,
+    n_fft=1024,
+    win_length=1024,
+    hop_length=512,
+    f_min=0.0,
+    f_max=None,
+    n_mels=80,             # Number of mel filterbanks
+    power=2.0,
+)
+
+# MFCC
+mfcc = T.MFCC(
+    sample_rate=16000,
+    n_mfcc=40,             # Number of MFCC coefficients
+    melkwargs={'n_fft': 1024, 'n_mels': 80, 'hop_length': 512},
+)
+
+# Time masking (SpecAugment)
+time_masking = T.TimeMasking(time_mask_param=20)
+
+# Frequency masking (SpecAugment)
+freq_masking = T.FrequencyMasking(freq_mask_param=10)
+
+# AmplitudeToDB (convert power/amplitude to decibels)
+amp_to_db = T.AmplitudeToDB(stype='power', top_db=80.0)
+
+# MuLaw encoding/decoding
+mulaw_encode = T.MuLawEncoding(quantization_channels=256)
+mulaw_decode = T.MuLawDecoding(quantization_channels=256)
+
+# Resample
+resampler = T.Resample(orig_freq=44100, new_freq=16000)
+
+# GriffinLim (invert spectrogram to waveform)
+griffin_lim = T.GriffinLim(
+    n_fft=1024,
+    n_iter=32,
+    win_length=1024,
+    hop_length=512,
+)
+
+# MelScale (convert frequency bins to mel scale)
+mel_scale = T.MelScale(
+    n_mels=80,
+    sample_rate=16000,
+    f_min=0.0,
+    f_max=None,
+)
+
+# InverseMelScale
+inv_mel_scale = T.InverseMelScale(
+    n_mels=80,
+    sample_rate=16000,
+    f_min=0.0,
+    f_max=None,
+    n_stft=513,
+)
+```
+
+### Audio Transform Pipeline
+
+```python
+# SpecAugment: combined masking pipeline
+specaugment = torch.nn.Sequential(
+    T.FrequencyMasking(freq_mask_param=15),
+    T.TimeMasking(time_mask_param=35),
+    T.TimeMasking(time_mask_param=35),  # Second time mask
+)
+
+# Full audio feature extraction pipeline
+class AudioFeatureExtractor:
+    def __init__(self, sample_rate=16000, n_mels=80):
+        self.mel_transform = T.MelSpectrogram(
+            sample_rate=sample_rate,
+            n_fft=1024,
+            hop_length=512,
+            n_mels=n_mels,
+        )
+        self.amp_to_db = T.AmplitudeToDB()
+
+    def __call__(self, waveform):
+        mel = self.mel_transform(waveform)
+        mel_db = self.amp_to_db(mel)
+        return mel_db
+```
+
+---
+
+## 7. Text Transform Patterns
+
+While PyTorch does not have a dedicated text transform library, common patterns include:
+
+```python
+# Basic text preprocessing
+import re
+
+class TextPreprocessor:
+    def __init__(self, lowercase=True, remove_punctuation=True):
+        self.lowercase = lowercase
+        self.remove_punctuation = remove_punctuation
+
+    def __call__(self, text):
+        if self.lowercase:
+            text = text.lower()
+        if self.remove_punctuation:
+            text = re.sub(r'[^\w\s]', '', text)
+        return text
+
+# Tokenization
+class Tokenizer:
+    def __init__(self, vocab, max_length=512):
+        self.vocab = vocab
+        self.max_length = max_length
+
+    def __call__(self, text):
+        tokens = text.split()[:self.max_length]
+        ids = [self.vocab.get(t, self.vocab['<unk>']) for t in tokens]
+        return torch.tensor(ids, dtype=torch.long)
+
+# Text transform pipeline
+class TextTransform:
+    def __init__(self, vocab, max_length=512):
+        self.preprocessor = TextPreprocessor()
+        self.tokenizer = Tokenizer(vocab, max_length)
+
+    def __call__(self, text):
+        text = self.preprocessor(text)
+        return self.tokenizer(text)
+```
+
+---
+
+## 8. Common Transform Pipelines
+
+### ImageNet Training Pipeline
+
+```python
+# Standard ImageNet training augmentation
+train_transform = transforms.Compose([
+    transforms.RandomResizedCrop(224),
+    transforms.RandomHorizontalFlip(),
+    transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225]),
+    transforms.RandomErasing(p=0.2),
+])
+
+# Validation
 val_transform = transforms.Compose([
     transforms.Resize(256),
     transforms.CenterCrop(224),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225]),
+                        std=[0.229, 0.224, 0.225]),
 ])
 ```
 
@@ -818,232 +1086,155 @@ val_transform = transforms.Compose([
 
 ```python
 class SimCLRTransform:
-    """SimCLR data augmentation for contrastive learning."""
+    """SimCLR self-supervised learning augmentations."""
 
     def __init__(self, size=224):
         self.transform = transforms.Compose([
-            transforms.RandomResizedCrop(size, scale=(0.08, 1.0)),
+            transforms.RandomResizedCrop(size, scale=(0.2, 1.0)),
             transforms.RandomHorizontalFlip(),
             transforms.RandomApply([
                 transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
             ], p=0.8),
             transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply([transforms.GaussianBlur(5)], p=0.5),
+            transforms.RandomApply([
+                transforms.GaussianBlur(kernel_size=5)
+            ], p=0.5),
+            transforms.RandomSolarize(threshold=128, p=0.1),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225]),
+                                std=[0.229, 0.224, 0.225]),
         ])
 
     def __call__(self, x):
-        """Return two augmented views of the same image."""
+        """Return two different augmented views of the same image."""
         return self.transform(x), self.transform(x)
 ```
 
-### BYOL / MoCo Augmentation
+### CutMix / MixUp Transform
 
 ```python
-class BYOLTransform:
-    """BYOL augmentation: strong + weak views."""
+class CutMixCollator:
+    """Collator that applies CutMix augmentation."""
 
-    def __init__(self, size=224):
-        self.weak = transforms.Compose([
-            transforms.RandomResizedCrop(size),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406],
-                                 [0.229, 0.224, 0.225]),
-        ])
-        self.strong = transforms.Compose([
-            transforms.RandomResizedCrop(size),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.2, 0.1)], p=0.8),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply([transforms.GaussianBlur(5)], p=0.5),
-            transforms.RandomSolarize(128, p=0.1),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406],
-                                 [0.229, 0.224, 0.225]),
-        ])
+    def __init__(self, alpha=1.0):
+        self.alpha = alpha
 
-    def __call__(self, x):
-        return self.strong(x), self.weak(x)
+    def __call__(self, batch):
+        images, labels = zip(*batch)
+        images = torch.stack(images)
+        labels = torch.tensor(labels)
+
+        if self.alpha > 0:
+            lam = np.random.beta(self.alpha, self.alpha)
+        else:
+            lam = 1.0
+
+        batch_size = images.size(0)
+        index = torch.randperm(batch_size)
+
+        # Generate random bounding box
+        W, H = images.size(2), images.size(3)
+        cut_rat = np.sqrt(1.0 - lam)
+        cut_w = int(W * cut_rat)
+        cut_h = int(H * cut_rat)
+
+        cx = np.random.randint(W)
+        cy = np.random.randint(H)
+
+        x1 = max(0, cx - cut_w // 2)
+        y1 = max(0, cy - cut_h // 2)
+        x2 = min(W, cx + cut_w // 2)
+        y2 = min(H, cy + cut_h // 2)
+
+        images[:, :, x1:x2, y1:y2] = images[index, :, x1:x2, y1:y2]
+        lam = 1 - (x2 - x1) * (y2 - y1) / (W * H)
+
+        return images, labels, labels[index], lam
 ```
 
-### FixRes Augmentation
+### Test-Time Augmentation (TTA)
 
 ```python
-# Different train and test resolutions
-train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(224),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-])
+class TestTimeAugmentation:
+    """Apply multiple augmentations at test time and average predictions."""
 
-test_transform = transforms.Compose([
-    transforms.Resize(384),                    # Higher resolution at test
-    transforms.CenterCrop(384),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-])
-```
-
----
-
-## 9. DataLoader with Transforms
-
-### Standard Pattern
-
-```python
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
-
-train_transform = transforms.Compose([
-    transforms.RandomResizedCrop(224),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-])
-
-train_dataset = datasets.ImageFolder(
-    'data/train',
-    transform=train_transform,
-)
-
-train_loader = DataLoader(
-    train_dataset,
-    batch_size=32,
-    shuffle=True,
-    num_workers=4,
-    pin_memory=True,
-)
-```
-
-### GPU-Based Transforms with Kornia
-
-```python
-import kornia as K
-
-class GPUTransform(nn.Module):
-    """Apply augmentations on GPU for better performance."""
-
-    def __init__(self):
-        super().__init__()
-        self.augmentation = K.AugmentationSequential(
-            K.augmentation.RandomResizedCrop((224, 224)),
-            K.augmentation.RandomHorizontalFlip(p=0.5),
-            K.augmentation.ColorJitter(0.4, 0.4, 0.4, 0.1, p=0.5),
-            data_keys=["input"],
-        )
-
-    def forward(self, x):
-        return self.augmentation(x)
-
-# CPU: minimal transform (just ToTensor and Normalize)
-cpu_transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-])
-
-# GPU augmentation
-gpu_augment = GPUTransform().to('cuda')
-
-for images, labels in train_loader:
-    images = images.to('cuda')
-    images = gpu_augment(images)  # Augment on GPU
-    output = model(images)
-```
-
----
-
-## 10. Albumentations Integration
-
-Albumentations is a fast image augmentation library that integrates well with PyTorch.
-
-```python
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
-
-# Define augmentation pipeline
-transform = A.Compose([
-    A.RandomResizedCrop(224, 224, scale=(0.08, 1.0)),
-    A.HorizontalFlip(p=0.5),
-    A.ShiftScaleRotate(shift_limit=0.05, scale_limit=0.05,
-                       rotate_limit=15, p=0.5),
-    A.ColorJitter(brightness=0.4, contrast=0.4,
-                  saturation=0.4, hue=0.1, p=0.5),
-    A.Normalize(mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225]),
-    ToTensorV2(),
-])
-
-# With bounding boxes
-transform_with_bboxes = A.Compose([
-    A.RandomResizedCrop(224, 224),
-    A.HorizontalFlip(p=0.5),
-    A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ToTensorV2(),
-], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['labels']))
-
-# Dataset integration
-class AlbumentationsDataset(Dataset):
-    def __init__(self, image_dir, transform=None):
-        self.image_dir = image_dir
+    def __init__(self, model, transform, num_augmentations=5):
+        self.model = model
         self.transform = transform
-        self.images = os.listdir(image_dir)
+        self.num_augmentations = num_augmentations
 
-    def __len__(self):
-        return len(self.images)
+    def predict(self, image):
+        self.model.eval()
+        predictions = []
 
-    def __getitem__(self, idx):
-        image = cv2.imread(os.path.join(self.image_dir, self.images[idx]))
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        with torch.no_grad():
+            for _ in range(self.num_augmentations):
+                augmented = self.transform(image)
+                augmented = augmented.unsqueeze(0).to(next(self.model.parameters()).device)
+                pred = self.model(augmented)
+                predictions.append(pred.softmax(dim=1))
 
-        if self.transform:
-            augmented = self.transform(image=image)
-            image = augmented['image']
-
-        return image
+        return torch.stack(predictions).mean(dim=0)
 ```
 
 ---
 
-## 11. Transform Summary Table
+## 9. Auto-Augment and RandAugment
 
-### v1 Transforms
+### AutoAugment
 
-| Transform | Input | Output | Category |
-|-----------|-------|--------|----------|
-| `Resize` | PIL/Tensor | PIL/Tensor | Geometric |
-| `CenterCrop` | PIL/Tensor | PIL/Tensor | Geometric |
-| `RandomCrop` | PIL/Tensor | PIL/Tensor | Geometric |
-| `RandomResizedCrop` | PIL/Tensor | PIL/Tensor | Geometric |
-| `RandomHorizontalFlip` | PIL/Tensor | PIL/Tensor | Geometric |
-| `RandomVerticalFlip` | PIL/Tensor | PIL/Tensor | Geometric |
-| `RandomAffine` | PIL/Tensor | PIL/Tensor | Geometric |
-| `RandomRotation` | PIL/Tensor | PIL/Tensor | Geometric |
-| `RandomPerspective` | PIL/Tensor | PIL/Tensor | Geometric |
-| `RandomErasing` | Tensor | Tensor | Geometric |
-| `ColorJitter` | PIL/Tensor | PIL/Tensor | Color |
-| `GaussianBlur` | PIL/Tensor | PIL/Tensor | Color |
-| `RandomGrayscale` | PIL/Tensor | PIL/Tensor | Color |
-| `Normalize` | Tensor | Tensor | Conversion |
-| `ToTensor` | PIL/ndarray | Tensor | Conversion |
-| `PILToTensor` | PIL | Tensor | Conversion |
-| `Compose` | Any | Any | Composition |
-| `RandomApply` | Any | Any | Composition |
-| `RandomChoice` | Any | Any | Composition |
-| `RandomOrder` | Any | Any | Composition |
-| `LinearTransformation` | Tensor | Tensor | Mathematical |
+```python
+from torchvision.transforms import AutoAugment, AutoAugmentPolicy
 
-### v2 Key Differences
+# ImageNet policy
+transform = AutoAugment(policy=AutoAugmentPolicy.IMAGENET)
 
-| Feature | v1 | v2 |
-|---------|----|----|
-| Bounding box support | No | Yes |
-| Mask support | No | Yes |
-| Video support | No | Yes |
-| Native tensor ops | Partial | Full |
-| CutMix/MixUp | Manual | Built-in |
-| AutoAugment | Limited | Full |
-| `ToTensor` | Yes (deprecated in v2) | Use `ToImage` + `ToDtype` |
+# CIFAR10 policy
+transform = AutoAugment(policy=AutoAugmentPolicy.CIFAR10)
+
+# SVHN policy
+transform = AutoAugment(policy=AutoAugmentPolicy.SVHN)
+```
+
+### RandAugment
+
+```python
+from torchvision.transforms import RandAugment
+
+# RandAugment with N=2 transforms, M=9 magnitude
+transform = RandAugment(num_ops=2, magnitude=9)
+
+# Usage in pipeline
+train_transform = transforms.Compose([
+    transforms.RandomResizedCrop(224),
+    transforms.RandomHorizontalFlip(),
+    RandAugment(num_ops=2, magnitude=9),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225]),
+])
+```
+
+### TrivialAugmentWide
+
+```python
+from torchvision.transforms import TrivialAugmentWide
+
+# Simplest augmentation strategy
+transform = TrivialAugmentWide(num_magnitude_bins=31)
+```
+
+### AugMix
+
+```python
+from torchvision.transforms import AugMix
+
+# AugMix augmentation
+transform = AugMix(
+    severity=3,
+    mixture_width=3,
+    chain_depth=-1,      # -1 = random depth
+    alpha=1.0,
+    all_ops=True,
+)
+```
