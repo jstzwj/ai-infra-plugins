@@ -7,6 +7,40 @@
   },
   "plugins": [
     {
+      "name": "cuda",
+      "description": "Comprehensive reference for NVIDIA CUDA C++ covering Programming Guide and Best Practices Guide (v13.2), including programming model, memory management, async execution, CUDA graphs, cooperative groups, TMA unit, L2 cache control, virtual memory, IPC, multi-GPU, and performance optimization.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/cuda",
+      "homepage": "https://docs.nvidia.com/cuda/",
+      "tags": [
+        "ai-infra",
+        "cuda",
+        "gpu",
+        "parallel-computing",
+        "nvidia"
+      ]
+    },
+    {
+      "name": "cutile",
+      "description": "NVIDIA cuTile tile-based GPU programming model reference covering tile kernels, tile operations, TileIR compiler, array-based CUDA programming, tile-level parallelism, AOT compilation, autotuning, memory model, atomic operations, and interoperability with CuPy/PyTorch/NumPy.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/cutile",
+      "homepage": "https://docs.nvidia.com/cuda/cutile/",
+      "tags": [
+        "ai-infra",
+        "cuda",
+        "gpu-kernels",
+        "cutile",
+        "tile-programming"
+      ]
+    },
+    {
       "name": "cutlass",
       "description": "Comprehensive NVIDIA CUTLASS/CuTe GPU kernel development reference covering GEMM, convolution, epilogue fusion, tensor layouts, pipeline management, and Python API with detailed code-level guidance.",
       "author": {
@@ -23,5 +57,107 @@
         "cute"
       ]
     },
+    {
+      "name": "flash-attention",
+      "description": "Complete reference for FlashAttention - fast and memory-efficient exact attention with IO-awareness. Covers FA2, FA3 (Hopper), FA4 (CuTeDSL) APIs, multi-head attention module, model implementations, operations library, Triton kernels, and training framework integration.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/flash-attention",
+      "homepage": "https://github.com/Dao-AILab/flash-attention",
+      "tags": [
+        "ai-infra",
+        "attention",
+        "gpu-kernels",
+        "flash-attention",
+        "deep-learning"
+      ]
+    },
+    {
+      "name": "pytorch",
+      "description": "Comprehensive reference for PyTorch (v2.7) covering tensor operations, autograd, nn modules, distributed training, CUDA support, AMP, torch.compile/Dynamo, TorchScript, FX, Inductor, ONNX export, quantization, profiling, sparse tensors, C++ API (libtorch), and deployment.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/pytorch",
+      "homepage": "https://pytorch.org/",
+      "tags": [
+        "ai-infra",
+        "pytorch",
+        "deep-learning",
+        "tensor",
+        "autograd"
+      ]
+    },
+    {
+      "name": "tilelang",
+      "description": "Comprehensive reference for TileLang - a concise DSL for developing high-performance GPU/CPU kernels built on Apache TVM. Covers 3-level abstraction, language API, compilation pipeline, JIT system, backends (CUDA/ROCm/Metal/CPU/WebGPU), layout system, quantization, autotuning, and extensive examples.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/tilelang",
+      "homepage": "https://github.com/tile-ai/tilelang",
+      "tags": [
+        "ai-infra",
+        "tilelang",
+        "gpu-kernels",
+        "dsl",
+        "tvm"
+      ]
+    },
+    {
+      "name": "triton",
+      "description": "Comprehensive reference for OpenAI Triton (v3.7) - a language and compiler for writing highly efficient custom Deep-Learning primitives on GPUs. Covers Python API, MLIR dialects, backends (NVIDIA CUDA, AMD ROCm), experimental features, Proton profiler, tutorials, and build system.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/triton",
+      "homepage": "https://github.com/triton-lang/triton",
+      "tags": [
+        "ai-infra",
+        "triton",
+        "gpu-kernels",
+        "compiler",
+        "deep-learning"
+      ]
+    },
+    {
+      "name": "tvm",
+      "description": "Comprehensive reference for Apache TVM machine learning compilation framework covering TensorIR, Relax IR, TVMScript, MetaSchedule, DLight, model import, GPU/CPU code generation, operator fusion, auto-tuning, BYOC, dataflow pattern language, LLM optimization, and distributed inference.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/tvm",
+      "homepage": "https://tvm.apache.org/",
+      "tags": [
+        "ai-infra",
+        "tvm",
+        "compiler",
+        "ml-compilation",
+        "model-optimization"
+      ]
+    },
+    {
+      "name": "xla",
+      "description": "Comprehensive reference for XLA (Accelerated Linear Algebra, v2.0) compiler covering architecture, operation semantics, HLO IR, compilation pipeline, GPU/CPU/TPU backends, PJRT API, MLIR integration, custom calls, autotuning, SPMD partitioning, debugging tools, and build system.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/xla",
+      "homepage": "https://openxla.org/xla",
+      "tags": [
+        "ai-infra",
+        "xla",
+        "compiler",
+        "ml-compilation",
+        "gpu"
+      ]
+    }
   ]
 }
