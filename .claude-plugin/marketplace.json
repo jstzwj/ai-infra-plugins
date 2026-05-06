@@ -1,0 +1,27 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ai-infra-plugins",
+  "description": "Curated Claude Code plugins for AI infrastructure engineering, including GPU kernels, compilers, runtimes, benchmarking, and model serving systems.",
+  "owner": {
+    "name": "AI Infra"
+  },
+  "plugins": [
+    {
+      "name": "cutlass",
+      "description": "Comprehensive NVIDIA CUTLASS/CuTe GPU kernel development reference covering GEMM, convolution, epilogue fusion, tensor layouts, pipeline management, and Python API with detailed code-level guidance.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/cutlass",
+      "homepage": "https://github.com/NVIDIA/cutlass",
+      "tags": [
+        "ai-infra",
+        "cuda",
+        "gpu-kernels",
+        "cutlass",
+        "cute"
+      ]
+    },
+  ]
+}
