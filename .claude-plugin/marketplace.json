@@ -92,6 +92,24 @@
       ]
     },
     {
+      "name": "ray",
+      "description": "Comprehensive reference for Ray - a unified framework for scaling AI and Python applications. Covers Ray Core (tasks, actors, objects, scheduling, placement groups, fault tolerance), Ray Data (datasets, transformations, datasources), Ray Serve (model serving, deployments, autoscaling), Ray Train (distributed training with PyTorch, TensorFlow, HuggingFace, DeepSpeed), Ray Tune (hyperparameter tuning), Ray RLlib (reinforcement learning), Ray Cluster (autoscaling, cloud providers, KubeRay), Ray Workflow, Ray DAG/compiled graphs, Ray AIR, Ray LLM, and internal architecture.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/ray",
+      "homepage": "https://ray.io/",
+      "tags": [
+        "ai-infra",
+        "ray",
+        "distributed-computing",
+        "machine-learning",
+        "serving",
+        "reinforcement-learning"
+      ]
+    },
+    {
       "name": "tilelang",
       "description": "Comprehensive reference for TileLang - a concise DSL for developing high-performance GPU/CPU kernels built on Apache TVM. Covers 3-level abstraction, language API, compilation pipeline, JIT system, backends (CUDA/ROCm/Metal/CPU/WebGPU), layout system, quantization, autotuning, and extensive examples.",
       "author": {
@@ -193,6 +211,24 @@
         "automatic-differentiation",
         "jit-compilation",
         "numerical-computing"
+      ]
+    },
+    {
+      "name": "mlir",
+      "description": "Comprehensive reference for MLIR (Multi-Level Intermediate Representation) - the extensible compiler infrastructure from the LLVM project. Covers IR core concepts, dialect definitions (ODS, TableGen), pass infrastructure, pattern rewriting, dialect conversion, PDLL, all standard dialects (Arith, Math, MemRef, Tensor, Vector, SCF, Affine, Linalg, GPU, SPIR-V, LLVM, Transform, Bufferization, TOSA, Quant, OpenMP, OpenACC, Async, PDL, IRDL, EmitC), interfaces, traits, Python bindings, C API, tools, and tutorials.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/mlir",
+      "homepage": "https://mlir.llvm.org/",
+      "tags": [
+        "ai-infra",
+        "mlir",
+        "compiler",
+        "llvm",
+        "dialects",
+        "code-generation"
       ]
     },
     {

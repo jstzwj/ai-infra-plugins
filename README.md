@@ -16,9 +16,12 @@ A curated marketplace of Claude Code plugins for AI infrastructure engineering, 
 | **deepspeed** | 0.16 | DeepSpeed distributed deep learning training and inference optimization |
 | **flash-attention** | 2.8.4/4.x | FlashAttention fast and memory-efficient exact attention |
 | **jax** | 0.6 | JAX high-performance numerical computing and ML research |
+| **mlir** | 19.0 | MLIR extensible compiler infrastructure from the LLVM project |
+| **nccl** | 2.30 | NVIDIA NCCL GPU collective communications library |
 | **nsight** | 2025.x | NVIDIA Nsight Systems performance analysis and profiling |
 | **onnxruntime** | 1.22 | ONNX Runtime cross-platform inference and training engine |
 | **pytorch** | 2.7 | PyTorch tensor computation and deep learning framework |
+| **ray** | 2.47 | Ray unified framework for scaling AI and Python applications |
 | **sglang** | - | SGLang high-performance LLM serving framework |
 | **tensorflow** | 2.22 | TensorFlow end-to-end machine learning platform |
 | **tile-ir** | 13.2 | Tile IR low-level tile virtual machine for NVIDIA GPUs |

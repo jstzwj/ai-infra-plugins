@@ -16,9 +16,12 @@
 | **deepspeed** | 0.16 | DeepSpeed 分布式训练与推理优化 |
 | **flash-attention** | 2.8.4/4.x | FlashAttention 高效注意力算子 |
 | **jax** | 0.6 | JAX 高性能数值计算与 ML 研究库 |
+| **mlir** | 19.0 | MLIR 可扩展编译器基础设施（LLVM 项目） |
+| **nccl** | 2.30 | NVIDIA NCCL GPU 集合通信库 |
 | **nsight** | 2025.x | NVIDIA Nsight Systems 性能分析与 Profiling |
 | **onnxruntime** | 1.22 | ONNX Runtime 跨平台推理与训练引擎 |
 | **pytorch** | 2.7 | PyTorch 框架全量参考 |
+| **ray** | 2.47 | Ray 统一分布式 AI 与 Python 应用框架 |
 | **sglang** | - | SGLang 高性能大模型服务框架 |
 | **tensorflow** | 2.22 | TensorFlow 端到端机器学习平台 |
 | **tile-ir** | 13.2 | Tile IR——NVIDIA GPU 底层 Tile 虚拟机指令集 |
