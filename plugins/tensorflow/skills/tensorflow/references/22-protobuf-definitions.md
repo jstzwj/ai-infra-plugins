@@ -859,3 +859,330 @@ TensorProto:
    improved C++ allocation performance.
 5. **Java/Go packages**: Each proto specifies Java outer class name, package, and
    Go import path for cross-language compatibility.
+
+---
+
+## ConfigProto Reference
+
+**File**: `tensorflow/core/framework/config.proto`
+**Package**: `tensorflow`
+
+The `ConfigProto` message is the primary configuration mechanism for TensorFlow
+sessions. It controls all aspects of runtime behavior.
+
+### Message: `ConfigProto`
+
+| Field | Type | Number | Description |
+|-------|------|--------|-------------|
+| `device_count` | `map<string, int32>` | 1 | Maximum number of devices to use per device type (e.g., `{"GPU": 2}`). |
+| `intra_op_parallelism_threads` | `int32` | 2 | Number of threads available for intra-op parallelism (0 = system default). |
+| `inter_op_parallelism_threads` | `int32` | 3 | Number of threads available for inter-op parallelism (0 = system default). |
+| `use_per_session_threads` | `bool` | 4 | If true, use separate thread pools for each session. |
+| `session_inter_op_thread_pool` | `repeated ThreadPoolOptionProto` | 5 | Configuration for session thread pools. |
+| `placement_period` | `int32` | 6 | Period in seconds between device placement attempts (for soft placement). |
+| `device_filters` | `repeated string` | 7 | Device name substrings to filter visible devices. |
+| `gpu_options` | `GPUOptions` | 8 | GPU-specific configuration. |
+| `allow_soft_placement` | `bool` | 9 | If true, allow soft device placement when a device is unavailable. |
+| `log_device_placement` | `bool` | 10 | If true, log device placement decisions. |
+| `graph_options` | `GraphOptions` | 11 | Graph construction and optimization options. |
+| `operation_timeout_in_ms` | `int64` | 12 | Timeout for blocking operations in milliseconds. |
+| `rpc_options` | `RPCOptions` | 13 | RPC communication options for distributed training. |
+| `cluster_def` | `ClusterDef` | 14 | Cluster specification for distributed training. |
+| `experimental` | `Experimental` | 15 | Experimental configuration options. |
+
+### GPU-Specific Configuration
+
+### Message: `GPUOptions`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `visible_device_list` | `string` | Comma-separated list of GPU device IDs to make visible. |
+| `per_process_gpu_memory_fraction` | `double` | Fraction of GPU memory to preallocate (0.0 to 1.0). |
+| `allow_growth` | `bool` | If true, allocate GPU memory on demand rather than preallocating. |
+| `allocator_type` | `string` | GPU allocator type ("BFC" or string). |
+| `deferred_deletion_bytes` | `int64` | Defer GPU memory deletion until this many bytes accumulate. |
+| `polling_active_delay_usecs` | `int32` | Delay in microseconds between polling events. |
+| `experimental` | `GPUExperimental` | Experimental GPU options. |
+
+### Message: `GraphOptions`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enable_recv_scheduling` | `bool` | Enable recv-scheduling for distributed training. |
+| `optimizer_options` | `OptimizerOptions` | Optimizer configuration. |
+| `build_cost_model` | `int64` | Build cost model after this many steps (0 = disabled). |
+| `build_cost_model_after` | `int64` | Build cost model only after this many steps. |
+| `infer_shapes` | `bool` | Enable shape inference during graph construction. |
+| `place_pruned_graph` | `bool` | Place only the subgraph needed for the given feeds/fetches. |
+| `rewrite_options` | `RewriterConfig` | Grappler rewrite configuration. |
+| `tf_options` | `TensorFlowOptions` | Additional TensorFlow options. |
+
+### Message: `OptimizerOptions`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `opt_level` | `Level` | Optimization level (`L1` or `L0`). |
+| `global_jit_level` | `Level` | Global JIT compilation level (`DEFAULT`, `OFF`, `ON_1`, `ON_2`). |
+| `do_common_subexpression_elimination` | `bool` | Enable CSE. |
+| `do_function_inlining` | `bool` | Enable function inlining. |
+| `do_constant_folding` | `bool` | Enable constant folding. |
+
+### Message: `RPCOptions`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `num_channels` | `int32` | Number of gRPC channels per target. |
+| `buffer_size` | `int64` | Buffer size for gRPC messages. |
+| `compression_algorithm` | `string` | Compression algorithm ("deflate", "gzip", "none"). |
+| `compression_level` | `int32` | Compression level (1-9, higher = more compression). |
+| `use_rpc_for_inprocess_master` | `bool` | Use RPC even for in-process master. |
+
+---
+
+## ResourceHandleProto
+
+Used for `DT_RESOURCE` type tensors that reference stateful resources.
+
+### Message: `ResourceHandleProto`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `device` | `string` | Device where the resource is located. |
+| `container` | `string` | Container name for the resource. |
+| `name` | `string` | Unique name of the resource within its container. |
+| `hash_code` | `uint64` | Hash code of the resource type. |
+| `maybe_type_name` | `string` | Optional type name of the resource. |
+| `dtype_and_shape` | `repeated DtypeAndShape` | Data types and shapes stored in the resource. |
+
+### Message: `ResourceHandleProto.DtypeAndShape`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dtype` | `DataType` | Data type of the resource element. |
+| `shape` | `TensorShapeProto` | Shape of the resource tensor. |
+
+---
+
+## GraphDebugInfo
+
+Debug information for graph nodes, including source file locations.
+
+### Message: `GraphDebugInfo`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `files` | `repeated string` | Source file paths indexed by ID. |
+| `traces` | `map<string, GraphOpCreation>` | Node name to creation trace mapping. |
+
+### Message: `GraphDebugInfo.GraphOpCreation`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `file_id` | `int64` | Index into `files` list. |
+| `line_number` | `int64` | Line number in the source file. |
+| `func_name` | `string` | Name of the enclosing function. |
+| `code` | `repeated string` | Source code lines around the creation point. |
+
+---
+
+## DeviceAttributes
+
+Describes a device in the cluster.
+
+### Message: `DeviceAttributes`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `string` | Fully qualified device name. |
+| `device_type` | `string` | Device type (e.g., "CPU", "GPU"). |
+| `memory_limit` | `int64` | Memory limit in bytes. |
+| `locality` | `DeviceLocality` | Device locality information. |
+| `incarnation` | `uint64` | Unique incarnation number (changes on restart). |
+| `physical_device_desc` | `string` | Physical device description string. |
+
+### Message: `DeviceLocality`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `bus_id` | `int32` | Bus ID for NUMA/locality grouping. |
+| `numa_node` | `int32` | NUMA node ID. |
+| `links` | `LocalLinks` | Inter-device links. |
+
+---
+
+## VariableProto
+
+Describes a TensorFlow variable.
+
+### Message: `VariableDef`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `variable_name` | `string` | Name of the variable. |
+| `initial_value_name` | `string` | Name of the initial value tensor. |
+| `initializer_name` | `string` | Name of the initializer operation. |
+| `snapshot_name` | `string` | Name of the snapshot tensor. |
+| `save_slice_info_def` | `SaveSliceInfoDef` | Slice information for partitioned variables. |
+| `is_resource` | `bool` | True if this is a resource variable. |
+| `trainable` | `bool` | True if the variable is trainable. |
+| `synchronization` | `VariableSynchronization` | Synchronization mode. |
+| `aggregation` | `VariableAggregation` | Aggregation mode. |
+
+---
+
+## CostGraphDef
+
+Describes the cost model for graph operations.
+
+### Message: `CostGraphDef`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `node` | `repeated Node` | Cost information for each node. |
+
+### Message: `CostGraphDef.Node`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `string` | Node name. |
+| `device` | `string` | Device where the node runs. |
+| `id` | `int32` | Unique node ID. |
+| `input_start` | `int32` | Starting index for inputs in the cost graph. |
+| `output_info` | `repeated OutputInfo` | Output tensor information. |
+| `temporary_memory_size` | `int64` | Temporary memory required. |
+| `persistent_memory_size` | `int64` | Persistent memory required. |
+| `compute_cost` | `int64` | Estimated compute cost in microseconds. |
+| `compute_time` | `int64` | Estimated compute time in microseconds. |
+| `memory_time` | `int64` | Estimated memory access time in microseconds. |
+| `is_final` | `bool` | Whether cost estimates are final. |
+| `control_input` | `repeated int32` | Control input node IDs. |
+| `async_ops` | `repeated string` | Asynchronous operation names. |
+| `flow_control` | `repeated string` | Flow control node names. |
+
+### Message: `CostGraphDef.Node.OutputInfo`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `size` | `int64` | Output tensor size in bytes. |
+| `alias_input_port` | `int64` | Input port that this output aliases (-1 if no alias). |
+| `shape` | `TensorShapeProto` | Shape of the output tensor. |
+| `dtype` | `DataType` | Data type of the output tensor. |
+
+---
+
+## RewriterConfig (Grappler)
+
+Controls Grappler graph optimization behavior.
+
+### Message: `RewriterConfig`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `layout_optimizer` | `Toggle` | Enable layout optimization. |
+| `constant_folding` | `Toggle` | Enable constant folding. |
+| `shape_optimization` | `Toggle` | Enable shape optimization. |
+| `remapping` | `Toggle` | Enable operation remapping/fusion. |
+| `arithmetic_optimization` | `Toggle` | Enable arithmetic optimization. |
+| `dependency_optimization` | `Toggle` | Enable dependency optimization. |
+| `loop_optimization` | `Toggle` | Enable loop optimization. |
+| `function_optimization` | `Toggle` | Enable function optimization. |
+| `debug_stripper` | `Toggle` | Strip debug operations. |
+| `disabled_optimizations` | `repeated string` | List of optimizers to disable. |
+| `opt_level` | `OptimizerOptLevel` | Overall optimizer level. |
+| `memory_optimization` | `MemOptType` | Memory optimization mode. |
+| `memory_optimizer_target_node_name_scope` | `string` | Target name scope for memory optimization. |
+| `meta_optimizer_iterations` | `int32` | Number of meta-optimizer iterations. |
+| `meta_optimizer_timeout_ms` | `int64` | Timeout per optimizer in milliseconds. |
+| `implementation_selector` | `Toggle` | Enable implementation selection. |
+| `auto_mixed_precision` | `Toggle` | Enable auto mixed precision (GPU). |
+| `auto_mixed_precision_onednn_bfloat16` | `Toggle` | Enable auto mixed precision (CPU BF16). |
+| `auto_mixed_precision_onednn_float16` | `Toggle` | Enable auto mixed precision (CPU FP16). |
+| `disable_meta_optimizer` | `bool` | Disable the meta optimizer entirely. |
+| `min_graph_nodes` | `int32` | Minimum number of nodes to trigger optimization. |
+| `scoped_allocator_optimization` | `Toggle` | Enable scoped allocator optimization. |
+| `pin_to_host_optimization` | `Toggle` | Enable pin-to-host optimization. |
+| `custom_optimizers` | `repeated CustomGraphOptimizer` | Custom optimizer configurations. |
+| `optimizers` | `repeated string` | Explicit list of optimizers to run. |
+| `fail_on_optimizer_errors` | `bool` | Fail on optimizer errors. |
+| `scoped_allocator_opts` | `ScopedAllocatorOptions` | Scoped allocator configuration. |
+| `cpu_layout` | `CpuLayout` | CPU layout conversion mode. |
+
+### Enum: `RewriterConfig.Toggle`
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | `DEFAULT` | Use default behavior |
+| 1 | `ON` | Enable |
+| 2 | `OFF` | Disable |
+| 3 | `FORCED` | Force enable |
+| 4 | `EXPERIMENTAL` | Enable experimental features |
+
+### Enum: `RewriterConfig.MemOptType`
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | `NO_MEM_OPT` | No memory optimization |
+| 1 | `SWAP_HEURISTICS` | Use swapping heuristics |
+| 2 | `RECOMPUTATION_HEURISTICS` | Use recomputation heuristics |
+| 3 | `MANUAL` | Use manual annotations |
+
+### Enum: `RewriterConfig.CpuLayout`
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | `NO_CONVERSION_ON_CPU` | Do not convert layout on CPU |
+| 1 | `NCHW_TO_NHWC` | Convert NCHW to NHWC on CPU |
+| 2 | `NHWC_TO_NCHW` | Convert NHWC to NCHW on CPU |
+
+---
+
+## Additional Common Protos
+
+### Message: `SavedModel`
+
+Top-level message for saved models.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `saved_model_schema_version` | `int64` | Schema version. |
+| `meta_graphs` | `repeated MetaGraphDef` | Meta graphs in the saved model. |
+
+### Message: `MetaGraphDef`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `meta_info_def` | `MetaInfoDef` | Meta information. |
+| `graph_def` | `GraphDef` | The graph definition. |
+| `saver_def` | `SaverDef` | Saver configuration. |
+| `collection_def` | `map<string, CollectionDef>` | Named collections. |
+| `signature_def` | `map<string, SignatureDef>` | Named signatures. |
+| `asset_file_def` | `repeated AssetFileDef` | External asset files. |
+
+---
+
+## Proto Wire Format Notes
+
+### Field Number Assignment
+
+Proto fields in TensorFlow framework protos follow these conventions:
+- Fields 1-15: Single-byte encoding, used for frequently occurring fields
+- Fields 16-2047: Two-byte encoding, used for less frequent fields
+- Reserved/deprecated fields are not reused
+
+### Backward Compatibility
+
+All protobuf changes follow these rules:
+1. New fields can be added with new field numbers
+2. Existing field numbers are never reused
+3. Fields can be deprecated but not removed
+4. `reserved` keyword prevents accidental reuse
+5. Default values must be safe for old consumers
+
+### Cross-Language Support
+
+Each proto specifies:
+- **C++**: `cc_enable_arenas = true` for arena allocation
+- **Java**: `java_outer_classname`, `java_multiple_files`, `java_package`
+- **Go**: `go_package` for Go module import path
+
+These settings ensure consistent behavior across all language bindings.

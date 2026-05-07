@@ -10,8 +10,10 @@ description: >
   (FP8, FP4/MXFP4, GPTQ, AWQ, INT4/INT8, Marlin, bitsandbytes, GGUF, modelopt), multi-LoRA batching,
   multimodal processing (image/audio/video), CUDA graphs, torch.compile, piecewise CUDA graphs, sgl-kernel,
   sgl-model-gateway (Rust), HiCache, HiSparse, RL/post-training support, checkpoint engine, diffusion models,
-  observability, profiling, supported model architectures (200+ models), and hardware platforms (NVIDIA, AMD,
-  Intel, Google TPU, Ascend NPU, Apple Metal, CPU). Based on SGLang source code analysis.
+  observability, profiling, supported model architectures (200+ models), hardware platforms (NVIDIA, AMD,
+  Intel, Google TPU, Ascend NPU, Apple Metal, CPU), Python frontend language primitives, diffusion model
+  acceleration, sgl-model-gateway (Rust), reasoning/structured outputs, developer guide, and function calling.
+  Based on SGLang source code analysis.
 version: 0.5.9
 ---
 
@@ -207,3 +209,8 @@ llm.shutdown()
 | [18 - Benchmark and Deployment](references/18-benchmark-deployment.md) | Benchmark tools, Docker deployment, Kubernetes, multi-node setup |
 | [19 - Hardware Platforms](references/19-hardware-platforms.md) | NVIDIA, AMD, Intel, TPU, Ascend NPU, CPU, MPS platform-specific guides |
 | [20 - Environment Variables](references/20-environment-variables.md) | Complete environment variable reference with defaults and descriptions |
+| [21 - Diffusion Models](references/21-diffusion-models.md) | Image/video generation with WAN, FLUX, Qwen-Image, quantization, disaggregation |
+| [22 - Python Frontend](references/22-python-frontend.md) | SGLang frontend language API: gen, select, function, control flow primitives |
+| [23 - Model Gateway](references/23-model-gateway.md) | Rust-based sgl-model-gateway: load balancing, routing, cache-aware dispatch |
+| [24 - Developer Guide](references/24-developer-guide.md) | Contributing, adding models, custom kernels, testing, CI/CD, debugging |
+| [25 - Reasoning & Structured Outputs](references/25-reasoning-structured-outputs.md) | Reasoning parsers, structured outputs, function calling, constrained decoding |

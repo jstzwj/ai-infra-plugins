@@ -214,6 +214,25 @@
       ]
     },
     {
+      "name": "nccl",
+      "description": "Comprehensive reference for NVIDIA NCCL - the GPU collective communications library. Covers communicator lifecycle, collectives, P2P send/recv, group semantics, multi-node initialization, memory registration, symmetric windows, Device API, GIN/LSA, topology graph search, algorithms/protocols, transports (P2P/SHM/NET/IB/CollNet/NVLS), proxy progress, environment variables, plugins, RAS, nccl4py, and NCCL EP.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/nccl",
+      "homepage": "https://github.com/NVIDIA/nccl",
+      "tags": [
+        "ai-infra",
+        "nccl",
+        "nvidia",
+        "distributed-training",
+        "gpu-communication",
+        "collectives",
+        "cuda"
+      ]
+    },
+    {
       "name": "onnxruntime",
       "description": "Comprehensive reference for ONNX Runtime - the cross-platform high-performance inference and training engine. Covers C/C++/Python API, all Execution Providers (CUDA, TensorRT, OpenVINO, DNNL, CoreML, etc.), graph optimization, custom operators, training (ORTModule), quantization, LoRA adapters, language bindings, WebAssembly deployment, and profiling.",
       "author": {

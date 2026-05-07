@@ -955,3 +955,63 @@ Understanding the architecture is essential for:
 - Extending TensorFlow with new functionality
 - Making informed decisions about API usage
 - Migrating TF1 code to TF2
+
+---
+
+## Appendix: Key Entry Points
+
+### TensorFlow Package Init
+
+The main `__init__.py` at `tensorflow/python/__init__.py` orchestrates the
+public API surface. Key actions performed during `import tensorflow`:
+
+1. Load the C++ extension module (`pywrap_tensorflow`)
+2. Import and re-export submodules (`tf.keras`, `tf.data`, `tf.image`, etc.)
+3. Set up eager execution context
+4. Configure logging and monitoring
+5. Apply TF1/TF2 compatibility settings
+
+### Important File Locations
+
+```
+# Python package root
+tensorflow/python/__init__.py
+
+# Eager execution setup
+tensorflow/python/eager/context.py
+
+# Default TensorFlow 2 behavior
+tensorflow/python/tf2.py
+
+# Keras entry point
+tensorflow/python/keras/__init__.py
+
+# tf.function implementation
+tensorflow/python/eager/polymorphic_function/polymorphic_function.py
+
+# Gradient tape
+tensorflow/python/eager/backprop.py
+
+# Variable implementation
+tensorflow/python/ops/resource_variable_ops.py
+```
+
+### Debugging Architecture Issues
+
+When encountering architecture-related problems:
+
+1. **Import errors**: Check that `pywrap_tensorflow` compiled correctly.
+   The C++ extension must match your Python version and OS.
+
+2. **Device errors**: Verify GPU drivers, CUDA toolkit, and cuDNN versions
+   match TensorFlow's requirements. Use `tf.config.list_physical_devices()`
+   to check available devices.
+
+3. **Memory errors**: Use `tf.config.experimental.set_memory_growth()` to
+   prevent TensorFlow from allocating all GPU memory at startup.
+
+4. **Tracing errors in tf.function**: Use `tf.debugging.set_log_device_placement(True)`
+   to trace which operations execute where.
+
+5. **Version compatibility**: Check `tf.__version__` and ensure all
+   dependencies (NumPy, protobuf, etc.) are compatible.
