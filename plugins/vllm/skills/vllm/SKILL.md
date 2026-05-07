@@ -299,6 +299,38 @@ async def generate():
 - Audio models (Whisper, Ultravox)
 - Speech-to-text models
 
+## Code Examples
+
+Official examples from the vLLM repository (255 files), organized by category:
+
+| Category | Description |
+|----------|-------------|
+| `examples/basic/` | Basic offline inference and online serving |
+| `examples/offline_inference/` | Offline batch inference patterns |
+| `examples/online_serving/` | API client examples, web server integration |
+| `examples/tool_calling/` | Tool/function calling examples |
+| `examples/reasoning/` | Reasoning model integration |
+| `examples/features/` | Advanced features (quantization, LoRA, speculative decoding, etc.) |
+| `examples/disaggregated/` | Disaggregated prefill/decode serving |
+| `examples/rl/` | Reinforcement learning integration |
+| `examples/observability/` | Monitoring and tracing setup |
+| `examples/ray_serving/` | Ray-based serving deployment |
+| `examples/pooling/` | Embedding/pooling model examples |
+| `examples/speech_to_text/` | Speech-to-text model examples |
+| `examples/*.jinja` | Chat templates for various models |
+
+## Benchmark & Utility Scripts
+
+From `scripts/benchmarks/` — performance testing tools:
+
+| Script | Purpose |
+|--------|---------|
+| `benchmark_serving.py` | End-to-end serving throughput/latency benchmark |
+| `benchmark_latency.py` | Per-request latency measurement |
+| `benchmark_throughput.py` | Offline throughput benchmark |
+| `benchmark_prefix_caching.py` | Prefix caching performance |
+| `benchmark_serving_structured_output.py` | Structured output serving benchmark |
+
 ## Reference Documents
 
 For detailed documentation on each topic, see the reference documents:

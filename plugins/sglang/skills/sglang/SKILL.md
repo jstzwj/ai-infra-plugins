@@ -185,6 +185,45 @@ for output in outputs:
 llm.shutdown()
 ```
 
+## Code Examples
+
+Official examples from the SGLang repository (86 files), organized by category:
+
+| Category | Description |
+|----------|-------------|
+| `examples/runtime/` | Runtime usage: LoRA, multimodal, reward model, hidden states, engine API |
+| `examples/runtime/multimodal/` | Multimodal model examples (VLM) |
+| `examples/runtime/engine/` | Offline engine API usage |
+| `examples/frontend_language/` | SGLang Python frontend: gen, select, control flow |
+| `examples/chat_template/` | Chat templates for tool calling models |
+| `examples/usage/` | ModelOpt quantization, export utilities |
+| `examples/monitoring/` | Prometheus, Grafana, OpenTelemetry setup |
+| `examples/profiler/` | Nsight profiling tools |
+| `examples/checkpoint_engine/` | Checkpoint management |
+| `examples/sagemaker/` | AWS SageMaker deployment |
+
+## Benchmark & Utility Scripts
+
+### Benchmark Scripts (`scripts/benchmark/`)
+Kernel-level and system-level benchmarks:
+
+| Category | Key Scripts |
+|----------|-------------|
+| `kernels/` | all_reduce, fused_moe, quantization, attention, MoE benchmarks |
+| `hicache/` | HiCache performance: long context, multi-turn, serving |
+| `benchmark_batch/` | Batch processing and tokenizer benchmarks |
+| `lora/` | LoRA serving benchmarks |
+| `mtbench/`, `mmlu/`, `gsm8k/` | Standard model quality benchmarks |
+| `prefill_only/` | Embedding and scoring benchmarks |
+| `reasoning_benchmark/` | Reasoning task evaluation |
+
+### Utility Scripts (`scripts/`)
+Development and deployment utilities:
+- `killall_sglang.sh` - Clean shutdown of SGLang processes
+- `convert_otel_2_perfetto.py` - Convert OpenTelemetry traces to Perfetto format
+- `build_sgl_deep_gemm.sh` - Build DeepGEMM kernel
+- `export_deepseek_nextn.py` - Export DeepSeek NextN weights
+
 ## Reference Documents
 
 | Document | Description |
