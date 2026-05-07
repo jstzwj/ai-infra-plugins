@@ -1,846 +1,665 @@
-# Containers, Migration, Video Profiling, Embedded VMs, and Plugins Reference
-
-This document provides comprehensive reference material for container-based profiling, migrating from nvprof, NVIDIA video profiling, embedded virtual machine profiling, and Nsight Systems plugins.
-
----
+# Nsight Systems Containers, Migration, and Plugins Reference
 
 ## Table of Contents
 
-- [Container and Scheduler Support](#container-and-scheduler-support)
-  - [Collecting Data Within a Container](#collecting-data-within-a-container)
-  - [Enable Docker Collection](#enable-docker-collection)
-  - [Launch Docker Collection](#launch-docker-collection)
-  - [Profiling Services Launched via Kubernetes](#profiling-services-launched-via-kubernetes)
-  - [Nsight Streamer for Nsight Systems](#nsight-streamer-for-nsight-systems)
-  - [GUI VNC Container](#gui-vnc-container)
-    - [Available Parameters](#available-parameters)
-    - [Ports](#ports)
-    - [Volumes](#volumes)
-    - [Environment Variables](#environment-variables)
-    - [Usage Examples](#usage-examples)
+- [Container Support](#container-support)
 - [Migrating from NVIDIA nvprof](#migrating-from-nvidia-nvprof)
-  - [Using the Nsight Systems CLI nvprof Command](#using-the-nsight-systems-cli-nvprof-command)
-  - [CLI nvprof Command Switch Options](#cli-nvprof-command-switch-options)
-  - [Next Steps](#next-steps)
-- [NVIDIA Video Profiling](#nvidia-video-profiling)
-  - [NVIDIA Video Hardware Profiling](#nvidia-video-hardware-profiling)
-    - [Limitations and Requirements](#limitations-and-requirements)
-    - [Running from the CLI](#running-from-the-cli)
-  - [NVIDIA Video Codec SDK Trace](#nvidia-video-codec-sdk-trace)
-    - [NV Encoder API Functions Traced by Default](#nv-encoder-api-functions-traced-by-default)
-    - [NV Decoder API Functions Traced by Default](#nv-decoder-api-functions-traced-by-default)
-    - [NV JPEG API Functions Traced by Default](#nv-jpeg-api-functions-traced-by-default)
-- [Profiling Embedded Virtual Machines](#profiling-embedded-virtual-machines)
-  - [XHV Trace Configuration](#xhv-trace-configuration)
-  - [Specific Command Line Options](#specific-command-line-options)
-  - [Config File for Kernel Symbols](#config-file-for-kernel-symbols)
-  - [Symbol Files](#symbol-files)
-  - [XHV Profiling from the GUI](#xhv-profiling-from-the-gui)
-- [Adding Your Own Collection to a Report](#adding-your-own-collection-to-a-report)
-- [Nsight Systems Plugins (Preview)](#nsight-systems-plugins-preview)
-  - [What is a Plugin](#what-is-a-plugin)
-  - [Manifest File Contents](#manifest-file-contents)
-  - [How to Launch a Plugin](#how-to-launch-a-plugin)
-  - [How to Pass Arguments to a Plugin](#how-to-pass-arguments-to-a-plugin)
-  - [Supported Platforms](#supported-platforms)
-  - [Sample Plugin](#sample-plugin)
+- [Nsight Systems Plugins](#nsight-systems-plugins)
+- [Handling Application Launchers](#handling-application-launchers)
 
 ---
 
-## Container and Scheduler Support
+## Container Support
 
-### Collecting Data Within a Container
-
-While examples in this section use Docker container semantics, other containers work much the same. The following information assumes the reader is knowledgeable regarding Docker containers.
-
-**Best Practices:**
-- It is strongly recommended to use the **CLI** to profile in a container
-- Best container practice is to split services across containers when they do not require colocation
-- The Nsight Systems GUI is not needed to profile and brings in many dependencies, so the CLI is recommended
-- If you wish, the GUI can be in a separate side-car container you use to view your report
-- All you need is a shared folder between the containers
+Nsight Systems supports profiling applications running inside Docker containers and Kubernetes pods. Proper configuration is required to grant the container access to performance monitoring hardware.
 
 ### Enable Docker Collection
 
-When starting the Docker to perform a Nsight Systems collection, additional steps are required to enable the `perf_event_open` system call. This is required in order to utilize the Linux kernel's perf subsystem which provides sampling information to Nsight Systems.
+#### Seccomp Configuration
 
-**Three ways to enable perf_event_open syscall:**
+Docker's default seccomp profile blocks the `perf_event_open` system call required for CPU sampling. You must adjust the configuration to allow it.
 
-1. **Privileged mode:**
-
-```bash
-docker run --privileged=true ...
-```
-
-2. **Add SYS_ADMIN capability:**
+**Option 1: Use the `--privileged` flag (simplest, least secure):**
 
 ```bash
-docker run --cap-add=SYS_ADMIN ...
+docker run --privileged my_container
 ```
 
-3. **Set seccomp security profile:**
+**Option 2: Use a custom seccomp profile:**
 
-Secure computing mode (seccomp) is a feature of the Linux kernel that can be used to restrict an application's access. This feature is available only if the kernel is enabled with seccomp support.
-
-**To check for seccomp support:**
-
-```bash
-$ grep CONFIG_SECCOMP= /boot/config-$(uname -r)
-```
-
-**To configure the seccomp profile:**
-
-Download the default seccomp profile file, `default.json`, relevant to your Docker version. If `perf_event_open` is already listed in the file as guarded by `CAP_SYS_ADMIN`, then remove the `perf_event_open` line. Add the following lines under "syscalls" and save the resulting file as `default_with_perf.json`:
+Create a custom seccomp profile (`nsys-seccomp.json`) based on the default profile but with `perf_event_open` allowed:
 
 ```json
 {
-    "name": "perf_event_open",
-    "action": "SCMP_ACT_ALLOW",
-    "args": []
+    "defaultAction": "SCMP_ACT_ERRNO",
+    "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_AARCH64"],
+    "syscalls": [
+        {
+            "names": ["perf_event_open"],
+            "action": "SCMP_ACT_ALLOW"
+        }
+    ]
 }
 ```
 
-Then use the following switch when starting the Docker to apply the new seccomp profile:
+Then run with:
 
+```bash
+docker run --security-opt seccomp=nsys-seccomp.json my_container
 ```
---security-opt seccomp=default_with_perf.json
+
+**Option 3: Use `--cap-add=SYS_PTRACE` and `--cap-add=SYS_ADMIN`:**
+
+```bash
+docker run --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN my_container
+```
+
+#### perf_event_open Access
+
+For CPU sampling inside containers, ensure:
+
+| Requirement | How to Verify |
+|---|---|
+| `perf_event_paranoid <= 0` | `cat /proc/sys/kernel/perf_event_paranoid` on the host |
+| `perf_event_open` allowed | Check seccomp profile |
+| Device access | `--device /dev/perf` or `--privileged` |
+| Kernel headers | May be needed for some sampling modes |
+
+```bash
+# Set paranoid level on the host (before running container)
+sudo sh -c 'echo 0 > /proc/sys/kernel/perf_event_paranoid'
+
+# Verify from inside container
+docker run --rm --privileged ubuntu cat /proc/sys/kernel/perf_event_paranoid
 ```
 
 ### Launch Docker Collection
 
-Here is an example command that has been used to launch a Docker for testing with Nsight Systems:
+#### Basic Docker Profiling
 
 ```bash
-sudo nvidia-docker run --network=host \
-    --security-opt seccomp=default_with_perf.json \
-    --rm -ti caffe-demo2 bash
+# Profile an application inside a Docker container
+docker run --privileged --gpus all \
+    -v /path/to/nsys:/usr/local/bin/nsys \
+    my_container \
+    nsys profile -o /tmp/report my_application
+
+# Or with nsys installed in the container image
+docker run --privileged --gpus all \
+    my_container \
+    nsys profile -o /tmp/report python train.py
 ```
 
-**Known Issue:** There is a known issue where Docker collections terminate prematurely with older versions of the driver and the CUDA Toolkit. If collection is ending unexpectedly, please update to the latest versions.
+#### NVIDIA Container Toolkit
 
-After the Docker has been started, use the Nsight Systems CLI to launch a collection within the Docker. The resulting file can be imported into the Nsight Systems host like any other CLI result.
+When using the NVIDIA Container Toolkit (formerly nvidia-docker):
 
-### Profiling Services Launched via Kubernetes
+```bash
+docker run --gpus all --privileged \
+    -e NVIDIA_VISIBLE_DEVICES=0 \
+    -v /path/to/output:/output \
+    my_container \
+    nsys profile -o /output/report \
+    --trace=cuda,nvtx \
+    --sample=cpu \
+    python train.py
+```
 
-Nsight Systems can provide profiling via sidecar injection without need to modify your containers or k8/helm specs.
+#### Extracting Reports from Containers
 
-**Features:**
-- Data collected can be filtered by namespace or pod using Kubernetes labels
-- Data can be filtered within a container process using command-line regex
-- Compatible with various cloud service provider's in-house managed Kubernetes variants including AKS, EKS, GKE, and OKE
+```bash
+# Mount a host volume for report output
+docker run --gpus all --privileged \
+    -v $(pwd)/reports:/reports \
+    my_container \
+    nsys profile -o /reports/report python train.py
 
-**Documentation and Download:**
-Available at NGC Nsight Operator.
+# Or copy from a stopped container
+docker cp container_id:/tmp/report.nsys-rep ./report.nsys-rep
+```
 
-### Nsight Streamer for Nsight Systems
+#### Docker Run Options Summary
 
-A self-hosted NVIDIA Nsight Systems GUI running inside a Docker container enables remote access through a web browser. This configuration is particularly useful for analyzing data on remote servers or clusters.
+| Option | Purpose |
+|---|---|
+| `--privileged` | Full device access (simplest for profiling) |
+| `--gpus all` | Enable GPU access via NVIDIA Container Toolkit |
+| `--cap-add=SYS_PTRACE` | Allow ptrace (needed for some sampling) |
+| `--cap-add=SYS_ADMIN` | Allow perf_event_open |
+| `--security-opt seccomp=...` | Custom seccomp profile |
+| `--pid=host` | Share PID namespace with host |
+| `-v /path:/path` | Mount volumes for output and tools |
 
-**More Information:**
-Visit Nsight Streamer for Nsight Systems on NGC.
+### Profiling Services via Kubernetes
+
+#### Sidecar Injection
+
+Nsight Systems can profile services running in Kubernetes using a sidecar container approach.
+
+**Pod Configuration:**
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: profiled-service
+spec:
+  shareProcessNamespace: true
+  containers:
+  - name: application
+    image: my-application:latest
+    command: ["python", "service.py"]
+    securityContext:
+      capabilities:
+        add: ["SYS_PTRACE", "SYS_ADMIN"]
+  - name: nsys-sidecar
+    image: nvidia/nsight-systems:latest
+    command: ["nsys", "profile", "-o", "/output/profile"]
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - name: output
+      mountPath: /output
+  volumes:
+  - name: output
+    emptyDir: {}
+```
+
+#### Key Requirements
+
+| Requirement | Configuration |
+|---|---|
+| Shared PID namespace | `shareProcessNamespace: true` |
+| Privileged mode | `securityContext.privileged: true` |
+| GPU access | `nvidia.com/gpu` resource request |
+| Output volume | Shared emptyDir or PVC |
+| Host paranoid level | Set on the node, not configurable per-pod |
+
+#### Attaching to a Running Pod
+
+```bash
+# Use kubectl exec to run nsys in an existing pod
+kubectl exec -it my-pod -- nsys profile --duration=10 -o /tmp/profile
+
+# Or use a debug container (Kubernetes 1.18+)
+kubectl debug my-pod -it --image=nvidia/nsight-systems -- nsys profile --duration=10
+```
+
+### Nsight Streamer
+
+Nsight Streamer provides a lightweight agent for continuous profiling in production environments.
+
+#### Architecture
+
+```
+[Application Container] --> [Nsight Streamer Agent] --> [Nsight Systems Collector]
+                                      |
+                                      v
+                              [Report Storage]
+```
+
+#### Configuration
+
+```bash
+# Start the streamer agent
+nsys-streamer start --port=8900 --output=/data/profiles
+
+# Profile from the streamer
+nsys-streamer profile --target=pod://my-service --duration=30
+```
+
+#### Streamer Features
+
+| Feature | Description |
+|---|---|
+| **On-demand profiling** | Trigger profiles via API without restarting the service |
+| **Continuous monitoring** | Periodic profiling for trend analysis |
+| **Centralized collection** | Multiple agents report to a central collector |
+| **Low overhead** | Minimal impact when not actively profiling |
 
 ### GUI VNC Container
 
-Nsight Systems provides a build script to build a self-isolated Docker container with the Nsight Systems GUI and VNC server.
+For remote GUI access to Nsight Systems in a containerized environment, use the VNC container image.
 
-**Build Script Location:**
-`host-linux-x64/Scripts/VncContainer` directory (or similar on other architectures) under your Nsight Systems installation directory.
+#### Container Parameters
 
-**Requirements:**
-- Docker
-- Python 3.5 or later
-
-#### Available Parameters
-
-| Short Name | Full Name | Description |
-|------------|-----------|-------------|
-| | `--vnc-password` | (optional) Default password for VNC access (at least 6 characters). If it is specified and empty user will be asked during the build. Can be changed when running a container. |
-| `-aba` | `--additional-build-arguments` | (optional) Additional arguments, which will be passed to the docker build command. |
-| `-hd` | `--nsys-host-directory` | (optional) The directory with Nsight Systems host binaries (with GUI). |
-| `-td` | `--nsys-target-directory` | (optional, repeatable) The directory with Nsight Systems target binaries (can be specified multiple times). |
-| | `--tigervnc` | (optional) Use TigerVNC instead of x11vnc. |
-| | `--http` | (optional) Install noVNC in the Docker container for HTTP access. |
-| | `--rdp` | (optional) Install xRDP in the Docker for RDP access. |
-| | `--geometry` | (optional) Default VNC server resolution in the format WidthxHeight (default 1920x1080). |
-| | `--build-directory` | (optional) The directory to save temporary files (with the write access for the current user). By default, script or tmp directory will be used. |
+| Parameter | Description | Default |
+|---|---|---|
+| `VNC_PORT` | Port for VNC connections | `5900` |
+| `NOVNC_PORT` | Port for web-based VNC | `8080` |
+| `VNC_PASSWORD` | Password for VNC access | (none) |
+| `RESOLUTION` | Display resolution | `1920x1080` |
 
 #### Ports
 
-These ports can be published from the container to provide access to the Docker container:
-
-| Port | Purpose | Condition |
-|------|---------|-----------|
-| TCP 5900 | Port for VNC access | Always available |
-| TCP 80 | Port for HTTP access to noVNC server | Container is built with `--http` parameter |
-| TCP 3389 | Port for RDP access | Container is built with `--rdp` parameter |
+| Port | Protocol | Purpose |
+|---|---|---|
+| `5900` | TCP | Direct VNC connection |
+| `8080` | TCP | noVNC web client |
+| `6000` | TCP | X11 (optional) |
 
 #### Volumes
 
-| Docker Folder | Purpose | Description |
-|---------------|---------|-------------|
-| `/mnt/host` | Root path for shared folders | Folder owned by the Docker user (inner content can be accessed from Nsight Systems GUI) |
-| `/mnt/host/Projects` | Folder with projects and reports | Created by Nsight Systems UI in container |
-| `/mnt/host/logs` | Folder with inner services logs | May be useful to send reports to developers |
+| Volume | Purpose |
+|---|---|
+| `/data` | Report storage |
+| `/home/user` | User preferences and settings |
+| `/tmp` | Temporary files |
 
 #### Environment Variables
 
-| Variable Name | Purpose |
-|---------------|---------|
-| `VNC_PASSWORD` | Password for VNC access (at least 6 characters) |
-| `NSYS_WINDOW_WIDTH` | Width of VNC server display (in pixels) |
-| `NSYS_WINDOW_HEIGHT` | Height of VNC server display (in pixels) |
+| Variable | Description | Example |
+|---|---|---|
+| `DISPLAY` | X11 display number | `:0` |
+| `VNC_PASSWORD` | VNC access password | `my_password` |
+| `RESOLUTION` | Virtual display resolution | `1920x1080` |
+| `NSYS_HOME` | Nsight Systems installation path | `/opt/nvidia/nsight-systems` |
 
-#### Usage Examples
-
-**VNC access on port 5916:**
-
-```bash
-sudo docker run -p 5916:5900/tcp -ti nsys-ui-vnc:1.0
-```
-
-**VNC access on port 5916 and HTTP access on port 8080:**
+#### Example: Running the GUI VNC Container
 
 ```bash
-sudo docker run -p 5916:5900/tcp -p 8080:80/tcp -ti nsys-ui-vnc:1.0
-```
+# Basic VNC container
+docker run -d \
+    -p 5900:5900 -p 8080:8080 \
+    -e VNC_PASSWORD=mypassword \
+    -e RESOLUTION=1920x1080 \
+    -v $(pwd)/reports:/data \
+    --gpus all \
+    --privileged \
+    nvcr.io/nvidia/nsight-systems:latest
 
-**VNC access on port 5916, HTTP access on port 8080, and RDP access on port 33890:**
-
-```bash
-sudo docker run -p 5916:5900/tcp -p 8080:80/tcp -p 33890:3389/tcp -ti nsys-ui-vnc:1.0
-```
-
-**VNC access on port 5916, shared HOME folder, custom resolution and VNC password:**
-
-```bash
-sudo docker run -p 5916:5900/tcp \
-    -v $HOME:/mnt/host/home \
-    -e NSYS_WINDOW_WIDTH=3840 \
-    -e NSYS_WINDOW_HEIGHT=2160 \
-    -e VNC_PASSWORD=7654321 \
-    -ti nsys-ui-vnc:1.0
-```
-
-**VNC access on port 5916, shared HOME and projects folder:**
-
-```bash
-sudo docker run -p 5916:5900/tcp \
-    -v $HOME:/mnt/host/home \
-    -v /opt/NsysProjects:/mnt/host/Projects \
-    -ti nsys-ui-vnc:1.0
+# Access via web browser at http://localhost:8080
+# Or via VNC client at localhost:5900
 ```
 
 ---
 
 ## Migrating from NVIDIA nvprof
 
-### Using the Nsight Systems CLI nvprof Command
-
-The `nvprof` command of the Nsight Systems CLI is intended to help former nvprof users transition to `nsys`. Many nvprof switches are not supported by `nsys`, often because they are now part of NVIDIA Nsight Compute.
-
-**References:**
-- Full nvprof documentation: https://docs.nvidia.com/cuda/profiler-users-guide
-- nvprof transition guide for Nsight Compute: https://docs.nvidia.com/nsight-compute/NsightComputeCli/index.html#nvprof-guide
-
-**Important Notes:**
-- Any nvprof switch not listed below is not supported by the `nsys` nvprof command
-- No additional `nsys` functionality is available through this command
-- New features will not be added to this command in the future
-
-**Usage:**
-
-```bash
-nsys nvprof [options]
-```
+nvprof has been deprecated in favor of Nsight Systems and Nsight Compute. This section provides migration guidance.
 
 ### CLI nvprof Command Switch Options
 
-After choosing the nvprof command switch, the following options are available. When you are ready to move to using Nsight Systems CLI directly, see the Command Line Options documentation for the `nsys` switch(es) given below. Note that the `nsys` implementation and output may vary from nvprof.
+| nvprof Option | Nsight Systems Equivalent | Notes |
+|---|---|---|
+| `nvprof ./app` | `nsys profile ./app` | Basic profiling |
+| `--export-profile` / `-o` | `nsys profile -o report` | Output file |
+| `--log-file` | `nsys profile --log-file log.txt` | Log file |
+| `--analysis-metrics` | `nsys profile --stats=true` | Summary statistics |
+| `--print-gpu-trace` | `nsys stats --report gpu-trace` | Detailed GPU trace |
+| `--print-summary` | `nsys stats --report summary` | Summary report |
+| `--print-api-summary` | `nsys stats --report cuda-api-summary` | CUDA API summary |
+| `--print-gpu-summary` | `nsys stats --report cuda-api-summary` | GPU kernel summary |
+| `--print-kernel-summary` | `nsys stats --report kernel-summary` | Per-kernel summary |
+| `--print-memory-summary` | `nsys stats --report mem-summary` | Memory transfer summary |
+| `--print-openmp-summary` | `nsys stats --report openmp-summary` | OpenMP summary |
+| `--metrics` | Use Nsight Compute (`ncu`) | Detailed GPU metrics |
+| `--events` | Use Nsight Compute (`ncu`) | Hardware events |
+| `--kernels` `--kernel-name` | `nsys profile` + filter in GUI | Kernel filtering |
+| `--unified-memory-profiling` | `nsys profile --trace=cuda` | UM profiling (automatic) |
+| `--cpu-profiling` | `nsys profile --sample=cpu` | CPU sampling |
+| `--cpu-thread-tracing` | `nsys profile --trace=osrt` | Thread tracing |
+| `--profile-from-start off` | `nsys profile -c cudaProfilerApi` | Deferred start |
+| `--profile-api-trace` | `nsys profile --trace=cuda` | API tracing |
+| `--device-buffer-size` | `nsys profile --buffer-size` | Buffer size |
+| `--concurrent-kernels` | `nsys profile --trace=cuda` | Concurrent kernel view |
+| `--openacc-profiling off` | `nsys profile --trace=cuda,nvtx` | OpenACC (via NVTX) |
+| `--dependency-events` | `nsys profile --trace=cuda` | Dependency tracking |
+| `--replay-mode` | N/A in nsys (use ncu) | Kernel replay |
+| `--clock-period` | N/A in nsys | Sampling period |
 
-| Switch | Parameters (Default in Bold) | nsys Switch | Switch Description |
-|--------|-------------------------------|-------------|-------------------|
-| `--annotate-mpi` | **off**, openmpi, mpich | `--trace=mpi` AND `--mpi-impl` | Automatically annotate MPI calls with NVTX markers. Specify the MPI implementation installed on your machine. Only OpenMPI and MPICH implementations are supported. |
-| `--cpu-thread-tracing` | **on**, off | `--trace=osrt` | Collect information about CPU thread API activity. |
-| `--profile-api-trace` | none, runtime, driver, **all** | `--trace=cuda` | Turn on/off CUDA runtime and driver API tracing. For Nsight Systems there is no separate CUDA runtime and CUDA driver trace, so selecting runtime or driver is equivalent to selecting all. |
-| `--profile-from-start` | **on**, off | if off use `--capture-range=cudaProfilerApi` | Enable/disable profiling from the start of the application. If disabled, the application can use {cu,cuda}Profiler{Start,Stop} to turn on/off profiling. |
-| `-t` / `--timeout` | <nanoseconds> default=**0** | `--duration=seconds` | If greater than 0, stop the collection and kill the launched application after timeout seconds. nvprof started counting when the CUDA driver is initialized. nsys starts counting immediately. |
-| `--cpu-profiling` | **on**, off | `--sampling=cpu` | Turn on/off CPU profiling |
-| `--openacc-profiling` | **on**, off | `--trace=openacc` to turn on | Enable/disable recording information from the OpenACC profiling interface. Note: OpenACC profiling interface depends on the presence of the OpenACC runtime. |
-| `-o` / `--export-profile` | <filename> | `--output={filename}` and/or `--export=sqlite` | Export named file to be imported or opened in the Nsight Systems GUI. `%q{ENV_VAR}` in string will be replaced with the value of the environment variable. If not set this is an error. `%h` is replaced with the system hostname. `%%` in the string is replaced with `%`. `%p` in the string is not supported currently. Any other character following `%` is illegal. The default is report1, with the number incrementing to avoid overwriting files, in the user's working directory. |
-| `-f` / `--force-overwrite` | | `--force-overwrite=true` | Force overwriting all output files with same name. |
-| `-h` / `--help` | | `--help` | Print Nsight Systems CLI help |
-| `-V` / `--version` | | `--version` | Print Nsight Systems CLI version information |
+### Next Steps After Migration
 
-### Next Steps
+1. **Replace nvprof with nsys for timeline analysis**: Use `nsys profile` for collecting traces and the Nsight Systems GUI for visualization.
 
-NVIDIA Visual Profiler (NVVP) and NVIDIA nvprof are deprecated. New GPUs and features will not be supported by those tools. We encourage you to make the move to Nsight Systems now.
+2. **Use Nsight Compute for kernel profiling**: For detailed per-kernel metrics (occupancy, memory throughput, instruction mix), use `ncu` (Nsight Compute CLI):
+   ```bash
+   ncu --set full -o report ./my_application
+   ```
 
-For additional information, suggestions, and rationale, see the blog series in Other Resources.
+3. **Update scripts**: Replace nvprof CLI invocations with nsys equivalents:
+   ```bash
+   # Old
+   nvprof --export-profile profile.nvprof ./my_application
 
----
+   # New
+   nsys profile -o profile ./my_application
+   nsys stats profile.nsys-rep
+   ```
 
-## NVIDIA Video Profiling
+4. **Learn the new workflow**:
+   - `nsys profile` collects the trace.
+   - `nsys stats` generates text-based reports.
+   - `nsys export` converts to SQLite or other formats.
+   - Nsight Systems GUI provides interactive visualization.
 
-### NVIDIA Video Hardware Profiling
-
-#### Limitations and Requirements
-
-**Requirements:**
-- Linux (x86_64 or Arm) and Windows (x86_64)
-- Only covers desktop platforms running ResMan kernel driver
-- Driver version >= 535
-- GPU architecture Turing+
-
-**Not Supported On:**
-- Mobile platforms
-- Driver version < 535
-- GPU architecture < Turing
-- GSP is enabled and Driver < 545.31
-- MIG is enabled
-- Confidential computing is enabled
-- vGPU
-
-**Disabling GSP:**
-
-To turn off GSP permanently:
-
-```bash
-sudo su -c 'echo options nvidia NVreg_EnableGpuFirmware=0 > /etc/modprobe.d/nvidia-gsp.conf'
-sudo update-initramfs -u  # for Ubuntu-based systems
-# Then reboot.
-```
-
-To disable GSP until the next reboot:
-
-```bash
-sudo rmmod nvidia_uvm nvidia_drm nvidia_modeset nvidia && \
-sudo insmod /lib/modules/$(uname -r)/updates/dkms/nvidia.ko NVreg_EnableGpuFirmware=0
-for i in $(seq 0 7); do sudo nvidia-smi -i $i -pm ENABLED; done
-```
-
-#### Running from the CLI
-
-The feature is enabled through the `--gpu-video-device` option. It is available from the `nsys profile`, `nsys launch` and `nsys start` commands.
-
-The option behaves exactly like `--gpu-metrics-device` and accepts the following arguments:
-
-| Argument | Description |
-|----------|-------------|
-| `help` | List supported devices and their IDs; list unsupported devices (if any) and the reason |
-| `none` | Turn the feature off |
-| `all` | Turn the feature on on all supported devices (error if no devices support it) |
-| `<id1,id2,...>` | Turn the feature on the specified devices (ID corresponds to what `help` returns) |
-
-**Example:**
-
-```bash
-$ nsys profile --gpu-video-device help
-Possible --gpu-video-device values are:
-0: NVIDIA GeForce RTX 3070 PCI[0000:65:00.0]
-all: Select all supported GPUs
-none: Disable GPU video accelerator tracing [Default]
-
-Some GPUs don't support video accelerator tracing:
-Quadro P620 PCI[0000:04:00.0] (reason = Arch Pascal < Turing)
-```
-
-**Note:** This is a system-wide feature; it does not require a program to be launched.
-
-### NVIDIA Video Codec SDK Trace
-
-Nsight Systems for x86 Linux and Windows targets can trace calls from the NV Video Codec SDK. This software trace can be launched from the GUI or using `--trace nvvideo` from the CLI.
-
-On the timeline, calls on the CPU to the NV Encoder API and NV Decoder API will be shown.
-
-#### NV Encoder API Functions Traced by Default
-
-```
-NvEncodeAPICreateInstance
-nvEncOpenEncodeSession
-nvEncGetEncodeGUIDCount
-nvEncGetEncodeGUIDs
-nvEncGetEncodeProfileGUIDCount
-nvEncGetEncodeProfileGUIDs
-nvEncGetInputFormatCount
-nvEncGetInputFormats
-nvEncGetEncodeCaps
-nvEncGetEncodePresetCount
-nvEncGetEncodePresetGUIDs
-nvEncGetEncodePresetConfig
-nvEncGetEncodePresetConfigEx
-nvEncInitializeEncoder
-nvEncCreateInputBuffer
-nvEncDestroyInputBuffer
-nvEncCreateBitstreamBuffer
-nvEncDestroyBitstreamBuffer
-nvEncEncodePicture
-nvEncLockBitstream
-nvEncUnlockBitstream
-nvEncLockInputBuffer
-nvEncUnlockInputBuffer
-nvEncGetEncodeStats
-nvEndGetSequenceParams
-nvEncRegisterAsyncEvent
-nvEncUnregisterAsyncEvent
-nvEncMapInputResource
-nvEncUnmapInputResource
-nvEncDestroyEncoder
-nvEncInvalidateRefFrames
-nvEncOpenEncodeSessionEx
-nvEncRegisterResource
-nvEncUnregisterResource
-nvEncReconfigureEncoder
-nvEncCreateMVBuffer
-nvEncDestroyMVBuffer
-nvEncRunMotionEstimationOnly
-nvEncGetLastErrorString
-nvEncSetIOCudaStreams
-nvEncGetSequenceParamEx
-```
-
-#### NV Decoder API Functions Traced by Default
-
-```
-cuvidCreateVideoSource
-cuvidCreateVideoSourceW
-cuvidDestroyVideoSource
-cuvidSetVideoSourceState
-cudaVideoState
-cuvidGetSourceVideoFormat
-cuvidGetSourceAudioFormat
-cuvidCreateVideoParser
-cuvidParseVideoData
-cuvidDestroyVideoParser
-cuvidCreateDecoder
-cuvidDestroyDecoder
-cuvidDecodePicture
-cuvidGetDecodeStatus
-cuvidReconfigureDecoder
-cuvidMapVideoFrame
-cuvidUnmapVideoFrame
-cuvidMapVideoFrame64
-cuvidUnmapVideoFrame64
-cuvidCtxLockCreate
-cuvidCtxLockDestroy
-cuvidCtxLock
-cuvidCtxUnlock
-```
-
-#### NV JPEG API Functions Traced by Default
-
-```
-nvjpegBufferDeviceCreate
-nvjpegBufferDeviceDestroy
-nvjpegBufferDeviceRetrieve
-nvjpegBufferPinnedCreate
-nvjpegBufferPinnedDestroy
-nvjpegBufferPinnedRetrieve
-nvjpegCreate
-nvjpegCreateEx
-nvjpegCreateSimple
-nvjpegDecode
-nvjpegDecodeBatched
-nvjpegDecodeBatchedEx
-nvjpegDecodeBatchedInitialize
-nvjpegDecodeBatchedPreAllocate
-nvjpegDecodeBatchedSupported
-nvjpegDecodeBatchedSupportedEx
-nvjpegDecodeJpeg
-nvjpegDecodeJpegDevice
-nvjpegDecodeJpegHost
-nvjpegDecodeJpegTransferToDevice
-nvjpegDecodeParamsCreate
-nvjpegDecodeParamsDestroy
-nvjpegDecodeParamsSetAllowCMYK
-nvjpegDecodeParamsSetOutputFormat
-nvjpegDecodeParamsSetROI
-nvjpegDecodeParamsSetScaleFactor
-nvjpegDecoderCreate
-nvjpegDecoderDestroy
-nvjpegDecoderJpegSupported
-nvjpegDecoderStateCreate
-nvjpegDestroy
-nvjpegEncodeGetBufferSize
-nvjpegEncodeImage
-nvjpegEncodeRetrieveBitstream
-nvjpegEncodeRetrieveBitstreamDevice
-nvjpegEncoderParamsCopyHuffmanTables
-nvjpegEncoderParamsCopyMetadata
-nvjpegEncoderParamsCopyQuantizationTables
-nvjpegEncoderParamsCreate
-nvjpegEncoderParamsDestroy
-nvjpegEncoderParamsSetEncoding
-nvjpegEncoderParamsSetOptimizedHuffman
-nvjpegEncoderParamsSetQuality
-nvjpegEncoderParamsSetSamplingFactors
-nvjpegEncoderStateCreate
-nvjpegEncoderStateDestroy
-nvjpegEncodeYUV
-nvjpegGetCudartProperty
-nvjpegGetDeviceMemoryPadding
-nvjpegGetImageInfo
-nvjpegGetPinnedMemoryPadding
-nvjpegGetProperty
-nvjpegJpegStateCreate
-nvjpegJpegStateDestroy
-nvjpegJpegStreamCreate
-nvjpegJpegStreamDestroy
-nvjpegJpegStreamGetChromaSubsampling
-nvjpegJpegStreamGetComponentDimensions
-nvjpegJpegStreamGetComponentsNum
-nvjpegJpegStreamGetFrameDimensions
-nvjpegJpegStreamGetJpegEncoding
-nvjpegJpegStreamParse
-nvjpegJpegStreamParseHeader
-nvjpegSetDeviceMemoryPadding
-nvjpegSetPinnedMemoryPadding
-nvjpegStateAttachDeviceBuffer
-nvjpegStateAttachPinnedBuffer
-```
+5. **Key differences to remember**:
+   - nsys produces `.nsys-rep` files (not `.nvprof`).
+   - nsys GUI is separate from the CLI (launch with `nsys-ui`).
+   - nsys has much richer CPU profiling capabilities.
+   - nsys supports multi-GPU and system-wide profiling.
+   - nsys does not replace detailed kernel analysis (use ncu).
 
 ---
 
-## Profiling Embedded Virtual Machines
+## Nsight Systems Plugins
 
-Nsight Systems and DRIVE Hypervisor support periodic CPU sampling with call stacks. It works both on DRIVE Linux and QNX.
+Nsight Systems Plugins (Preview) extend the functionality of Nsight Systems through custom analysis modules.
 
-The call stacks are collected using frame pointers. The Linux kernel, QNX kernel, and user space libraries provided by NVIDIA are compiled with frame pointers. To ensure correct call stacks, compile all application code with frame pointer support using `-fno-omit-frame-pointer` with GCC, Clang, and QCC.
+### What is a Plugin
 
-**Important Notes:**
-- This is an experimental feature and is expected to change in the future
-- The symbols can be resolved both for user space code and for kernel space code
+A plugin is a collection of files that adds new analysis capabilities to Nsight Systems:
 
-**Symbol Resolution:**
+- **Manifest file**: Describes the plugin metadata and capabilities.
+- **Python scripts**: Implement the analysis logic.
+- **Resource files**: Icons, strings, and other assets.
 
-In the user space, the Cross-Hypervisor (XHV) sampling events are matched with the CPU thread state trace coming from Linux Perf and QNX Tracelogger. After that, Nsight Systems can know the module filename and can resolve symbols directly from these files if they are unstripped, or by looking up additional files with symbols.
+Plugins can:
+- Add custom analysis passes to the report pipeline.
+- Provide new views in the GUI.
+- Export data in custom formats.
+- Implement domain-specific analysis rules.
 
-In the kernel space (Linux kernel, QNX kernel, and additional service VMs), the symbols are resolved using the ELF file with symbols specified. `kernel_symbols.json` input file specifies the location of this ELF file.
+### Manifest File
 
-### XHV Trace Configuration
+The manifest file (`manifest.yml`) describes the plugin:
 
-**Steps to set up XHV profiling:**
+```yaml
+# manifest.yml
+name: My Custom Analysis
+version: 1.0.0
+description: Custom analysis plugin for my domain
+author: My Name
+nsys_version: "2025.2"
 
-1. Flash the devkit
-2. Copy necessary files: `pct.json`, eventlib schema files, and `kernel_symbols.json`
-3. Compose `kernel_symbols.json` to allow resolving symbols
-4. See example CLI commands to collect data
+# Entry points
+entry_points:
+  - type: analysis
+    name: custom-analysis
+    description: Runs custom analysis on profiling data
+    script: custom_analysis.py
+    function: run_analysis
 
-**Known Issues:**
-- This feature is not compatible with standard CPU sampling on Linux and QNX
-- When enabled together, hypervisor trace plus XHV sampling can write too much data into the same eventlib buffers, and the Nsight Systems agent might not be able to keep up with the rate, losing events. If that happens, disable hypervisor trace events with `--xhv-trace-events=none`.
+  - type: export
+    name: custom-export
+    description: Exports data in custom format
+    script: custom_export.py
+    function: export_data
 
-**Flashing DRIVE OS QNX/Linux:**
+# Configuration schema
+config:
+  properties:
+    threshold:
+      type: number
+      default: 0.5
+      description: Analysis threshold (0.0 to 1.0)
+    verbose:
+      type: boolean
+      default: false
+      description: Enable verbose output
 
-Log into the NVIDIA GPU Cloud (NGC):
+# Supported platforms
+platforms:
+  - linux-x86_64
+  - linux-aarch64
+  - windows-x86_64
+```
+
+### How to Launch and Pass Arguments
+
+#### Launching with a Plugin
 
 ```bash
-sudo docker login nvcr.io
+# Run plugin analysis on a report
+nsys plugin run --name=my-plugin report.nsys-rep
+
+# With arguments
+nsys plugin run --name=my-plugin --args="--threshold=0.8 --verbose" report.nsys-rep
+
+# List available plugins
+nsys plugin list
+
+# Install a plugin
+nsys plugin install /path/to/plugin/directory
 ```
 
-Username: `$oauthtoken` Password: \<NGC API key\>
+#### Plugin Arguments
 
-Docker command:
+Arguments can be passed via:
+
+1. **Command line**: `--args="key=value"`
+2. **Config file**: `--config=plugin_config.json`
+3. **Environment variables**: `NSYS_PLUGIN_<NAME>_<KEY>=value`
+
+### Supported Platforms
+
+| Platform | Architecture | Status |
+|---|---|---|
+| Linux | x86_64 | Supported |
+| Linux | aarch64 (ARM64) | Supported |
+| Windows | x86_64 | Supported |
+| QNX | aarch64 | Limited support |
+
+### ImportNvtxt Utility
+
+The ImportNvtxt utility creates and manages NVTX text (`.nvtxt`) annotation files that can be imported into Nsight Systems reports.
+
+#### Info Command
+
+Display information about an `.nvtxt` file:
 
 ```bash
-sudo docker run --rm --privileged --net host \
-    -v /dev/bus/usb:/dev/bus/usb \
-    -v /tmp:/drive_flashing \
-    -it <docker image>
+nsys-import-nvtxt info annotations.nvtxt
 ```
 
-**Examples:**
+Output:
+```
+NVTX Text File Information:
+  Version: 1.0
+  Domains: 3
+  Total ranges: 1500
+  Total events: 200
+  Time range: 0.000s - 10.234s
+```
 
-6.0.8.0 QNX:
+#### Create Command
+
+Create a new `.nvtxt` file:
 
 ```bash
-sudo docker run --rm --privileged --net host \
-    -v /dev/bus/usb:/dev/bus/usb \
-    -v /tmp:/drive_flashing \
-    -it nvcr.io/{MY_NGC_ORG}/driveos-pdk/drive-agx-orin-qnx-aarch64-pdk-build-x86:6.0.8.0-0003
+nsys-import-nvtxt create \
+    --output=annotations.nvtxt \
+    --format=csv \
+    annotations.csv
 ```
 
-6.0.9.1 QNX:
+Input CSV format:
+```csv
+timestamp_ns,name,domain,category,color
+1000000,Initialize, MyApp,1,#FF0000
+2000000,Train, MyApp,2,#00FF00
+8000000,Validate, MyApp,3,#0000FF
+```
+
+#### Merge Command
+
+Merge an `.nvtxt` file with an existing report:
 
 ```bash
-sudo docker run --rm --privileged --net host \
-    -v /dev/bus/usb:/dev/bus/usb \
-    -v /tmp:/drive_flashing \
-    -it nvcr.io/{MY_NGC_ORG}/driveos-pdk/drive-agx-orin-qnx-aarch64-pdk-build-x86:6.0.9.1-latest
+nsys-import-nvtxt merge \
+    --input=annotations.nvtxt \
+    --report=profile.nsys-rep \
+    --output=merged_report.nsys-rep
 ```
 
-6.0.8.0 Linux:
+Merge options:
+
+| Option | Description |
+|---|---|
+| `--input` | Path to the `.nvtxt` file |
+| `--report` | Path to the `.nsys-rep` file |
+| `--output` | Path for the merged output |
+| `--time-offset` | Offset to add to all timestamps (ns) |
+| `--domain-prefix` | Prefix for all domain names |
+| `--overwrite` | Overwrite existing output file |
+
+---
+
+## Handling Application Launchers
+
+When profiling distributed or multi-process applications, the application is often launched through a launcher like `mpirun`, `torchrun`, or `deepspeed`. Special handling is required.
+
+### Single Process / Subset Profiling with Wrapper Scripts
+
+#### Profiling a Single Rank with mpirun
+
+Create a wrapper script that only profiles a specific rank:
 
 ```bash
-sudo docker run --rm --privileged --net host \
-    -v /dev/bus/usb:/dev/bus/usb \
-    -v /tmp:/drive_flashing \
-    -it nvcr.io/{MY_NGC_ORG}/driveos-pdk/drive-agx-orin-linux-aarch64-pdk-build-x86:6.0.8.0-0003
+#!/bin/bash
+# profile_rank0.sh
+if [ "$OMPI_COMM_WORLD_RANK" = "0" ]; then
+    nsys profile -o report_rank0 "$@"
+else
+    exec "$@"
+fi
 ```
 
-Inside of container, flash with flash.py:
+Usage:
+```bash
+mpirun -np 4 ./profile_rank0.sh python train.py
+```
+
+#### Profiling a Subset of Ranks
 
 ```bash
-cd /drive
-./flash.py <aurix> <board>
+#!/bin/bash
+# profile_ranks.sh
+RANK=${OMPI_COMM_WORLD_RANK:-$PMI_RANK}
+case $RANK in
+    0|1)
+        nsys profile -o report_rank${RANK} "$@"
+        ;;
+    *)
+        exec "$@"
+        ;;
+esac
 ```
 
-- `<board>` -- Target board base name: `p3710` or `p3663`
-- `<aurix>` -- Aurix serial port, for example: `/dev/ttyACM1`, `/dev/ttyUSB1`
+#### Environment Variables for Rank Detection
 
-Examples:
+| Launcher | Variable | Description |
+|---|---|---|
+| Open MPI | `OMPI_COMM_WORLD_RANK` | Global rank |
+| Open MPI | `OMPI_COMM_WORLD_LOCAL_RANK` | Per-node rank |
+| MPICH | `PMI_RANK` | Global rank |
+| SLURM | `SLURM_PROCID` | Global task ID |
+| SLURM | `SLURM_LOCALID` | Local task ID |
+| torchrun | `LOCAL_RANK` | Local rank |
+| torchrun | `RANK` | Global rank |
+| DeepSpeed | `LOCAL_RANK` | Local rank |
+| DeepSpeed | `RANK` | Global rank |
+
+### DeepSpeed Profiling
+
+#### Basic DeepSpeed Profiling
 
 ```bash
-# Firespray p3710
-./flash.py /dev/ttyACM1 p3710
+# Profile all ranks (generates one report per rank)
+deepspeed --num_gpus=4 train.py --profile
 
-# Drive Orin p3663
-./flash.py /dev/ttyUSB1 p3663
+# Or use nsys directly with DeepSpeed
+nsys profile -o ds_report \
+    deepspeed --num_gpus=4 train.py
 ```
 
-**Creating XHV Directory:**
-
-QNX:
+#### Profile a Single DeepSpeed Rank
 
 ```bash
-cd /drive_flashing
-mkdir -p xhv/hypervisor/configs/t234ref-release/pct/qnx xhv/schemas
-cp -rv /drive/drive-foundation/virtualization/hypervisor/t23x/configs/t234ref-release/pct/p3710-10-a03/qnx/pct.json ./xhv/hypervisor/configs/t234ref-release/pct/qnx/
-cp -rv /drive/drive-foundation/schemas/event ./xhv/schemas/
+#!/bin/bash
+# ds_profile.sh
+if [ "$LOCAL_RANK" = "0" ]; then
+    nsys profile -o ds_rank0 \
+        --trace=cuda,nvtx,osrt \
+        --sample=cpu \
+        --python-sampling=true \
+        --output=ds_rank0 \
+        "$@"
+else
+    exec "$@"
+fi
 ```
-
-Linux:
 
 ```bash
-cd /drive_flashing
-mkdir -p xhv/hypervisor/configs/t234ref-release/pct/linux xhv/schemas
-cp -rv /drive/drive-foundation/virtualization/hypervisor/t23x/configs/t234ref-release/pct/p3710-10-a03/linux/pct.json ./xhv/hypervisor/configs/t234ref-release/pct/linux/
-cp -rv /drive/drive-foundation/schemas/event ./xhv/schemas/
+deepspeed --num_gpus=4 ./ds_profile.sh train.py
 ```
 
-**XHV Directory Structure:**
+#### DeepSpeed with Nsight Systems Integration
 
-```
-xhv/
-  ├── hypervisor/
-  │   └── configs/
-  │       └── t234ref-release/
-  │           └── pct/
-  │               └── linux/
-  │                   └── pct.json
-  └── schemas/
-      └── event/
-          ├── audioserver_events.json
-          ├── bpmp_events.json
-          ├── cem_events.json
-          ├── hv_events.json
-          ├── i2c_events.json
-          ├── Makefile.gen-event-headers.tmk
-          ├── monitor_events.json
-          ├── se_events.json
-          ├── sysmgr_events.json
-          └── vsc_events.json
-```
-
-Copy XHV directory to target:
-
-```bash
-scp -r xhv <user>@<target-IP>
-```
-
-### Specific Command Line Options
-
-| Option | Possible Parameters | Default | Switch Description |
-|--------|-------------------|---------|-------------------|
-| `--sample` | process-tree, system-wide, xhv, xhv-system-wide, none | process-tree | Select `xhv` or `xhv-system-wide` to enable Cross-Hypervisor (XHV) sampling; requires root privileges |
-| `--xhv-vm-symbols` | <filepath kernel_symbols.json> | none | XHV sampling config (optional, for kernel symbols) |
-| `--xhv-trace` | <filepath pct.json> | none | Collect hypervisor trace |
-| `--xhv-trace-events` | all, none, core, sched, irq, trap | all | HV trace events |
-
-**Example Commands:**
-
-```bash
-# XHV process-tree sampling with NVTX, OSRT, CUDA trace
-nsys profile --sample=xhv --trace=nvtx,osrt,cuda \
-    --xhv-vm-symbols=/root/kernel_symbols.json \
-    --xhv-trace=/root/xhv/hypervisor/configs/p3710-10-a01/pct/qnx/pct.json \
-    --xhv-trace-events=none sleep 5
-
-# XHV system-wide sampling
-nsys profile --sample=xhv-system-wide \
-    --xhv-vm-symbols=/root/kernel_symbols.json \
-    --xhv-trace=/root/xhv/hypervisor/configs/p3710-10-a01/pct/qnx/pct.json \
-    --xhv-trace-events=none sleep 5
-```
-
-### Config File for Kernel Symbols
-
-**QNX kernel_symbols.json example:**
+DeepSpeed has built-in profiling support:
 
 ```json
+// ds_config.json
 {
-    "guest_cfg": [
-        {
-            "guest_id": 0,
-            "guest_name": "Guest VM 0",
-            "symbols": "/root/symbols/procnto-smp-instr-safety.guest_vm.bin.sym"
-        },
-        {
-            "guest_id": 1,
-            "guest_name": "Update service",
-            "symbols": "/root/symbols/procnto-smp-instr-safety.update_vm.bin.sym"
-        },
-        {
-            "guest_id": 2,
-            "guest_name": "Resource Manager Server"
-        },
-        {
-            "guest_id": 3,
-            "guest_name": "Storage Server"
-        },
-        {
-            "guest_id": 4,
-            "guest_name": "Ethernet Server"
-        },
-        {
-            "guest_id": 5,
-            "guest_name": "Debug Server"
-        }
-    ],
-    "symbol_files": {
-        "Sidekick": "/root/symbols/sidekick.unstripped"
+    "comms_logger": {
+        "enabled": true
+    },
+    "flops_profiler": {
+        "enabled": true,
+        "profile_step": 5,
+        "module_depth": -1,
+        "top_modules": 3
     }
 }
 ```
 
-**Linux kernel_symbols.json example:**
-
-```json
-{
-    "guest_cfg": [
-        {
-            "guest_id": 0,
-            "guest_name": "Guest VM 0",
-            "symbols": "/home/nvidia/vmlinux"
-        },
-        {
-            "guest_id": 1,
-            "guest_name": "Update service"
-        }
-    ],
-    "symbol_files": {}
-}
-```
-
-### Symbol Files
-
-**Search Path Configuration:**
-
-CLI: `DbgFileSearchPath` config option
+#### Profiling Multi-Node DeepSpeed
 
 ```bash
-NSYS_CONFIG_DIRECTIVES='DbgFileSearchPath="/lib:/root/symbols"' nsys profile \
-    --sample=xhv \
-    --xhv-vm-symbols=/root/kernel_symbols.json \
-    --xhv-trace=/root/xhv/hypervisor/configs/p3710-10-a01/pct/qnx/pct.json \
-    --xhv-trace-events=none sleep 5
+# On each node, run with appropriate rank filtering
+deepspeed --num_nodes=2 --num_gpus=4 --hostfile=hostfile \
+    ./ds_profile.sh train.py
 ```
 
-GUI: Symbol location button.
+Ensure the output directory is shared (NFS) or use unique filenames per rank:
 
-**Note:** The search is non-recursive.
+```bash
+# In the wrapper script
+nsys profile -o /shared/output/ds_node${SLURM_NODEID}_rank${LOCAL_RANK} "$@"
+```
 
-**Symbol File Search Methods** (Nsight Systems tries them sequentially for each target file):
+### Profiling torchrun
 
-1. **Build-id debug files** (CLI only)
-   - `<symbol directory>/.build-id/...` directories with debug files (or links to debug files)
+```bash
+# Profile a specific rank with torchrun
+torchrun --nproc_per_node=4 train.py
 
-2. **Debuglink files** (CLI only)
-   - `<symbol directory>/<symbol file>` both filename and CRC from debuglink section must be matched
+# Using a wrapper script
+#!/bin/bash
+if [ "$LOCAL_RANK" = "0" ]; then
+    nsys profile -o torch_rank0 --trace=cuda,nvtx python "$@"
+else
+    python "$@"
+fi
 
-3. **File name and build-id** (CLI/GUI)
-   - `<symbol directory>/<symbol file>` by filename and build-id
+torchrun --nproc_per_node=4 ./wrapper.sh train.py
+```
 
-**Default Search Paths:**
-- Linux: `/usr/lib/debug`
-- QNX: No default path
+### Common Issues with Application Launchers
 
-### XHV Profiling from the GUI
-
-**XHV GUI Configuration Dialog Options:**
-
-| Option | Description |
-|--------|-------------|
-| Collect HV Trace | Enable XHV tracing |
-| pct.json location | The location of pct.json file on the host. There is predefined hierarchy of XHV JSON files |
-| Collect VM Profile | Enable XHV sampling (depends on Collect HV Trace) |
-| Event mask | Select XHV trace events (can be set to None) |
-| kernel_symbols.json location | The location of kernel_symbols.json file on the host. Note that this file contains target paths to the kernel symbol files |
-| Skip idle checkbox | Deprecated |
-| Combine EL0 checkbox | Deprecated |
+| Issue | Cause | Solution |
+|---|---|---|
+| Multiple reports overwrite each other | All ranks use same output filename | Include rank ID in filename: `-o report_${RANK}` |
+| Disk space exhaustion | Each rank generates a large report | Profile only a subset of ranks |
+| Startup synchronization issues | Profiling adds delay to profiled rank | Use warmup period or deferred start |
+| Signal propagation | nsys intercepts signals | Use `--kill=none` or adjust signal handling |
+| Environment not propagated | Launcher does not forward env vars | Use wrapper script to set environment |
 
 ---
 
-## Adding Your Own Collection to a Report
+## See Also
 
-Nsight Systems allows the user to add additional information to a report file for display with other Nsight Systems options.
-
----
-
-## Nsight Systems Plugins (Preview)
-
-### What is a Plugin
-
-Nsight Systems plugins are standalone applications that can be profiled along with the main application or without one in a system-wide profiling. The NVTX events emitted by a plugin are displayed in the same timeline as the main application events. Additionally, any stdout and stderr streams are captured the same way as for a target application.
-
-**How to make a plugin available:**
-Create a directory with a manifest file, `nsys-plugin.yaml`, then place it in a "plugins" directory next to the Nsight Systems target CLI binary. The manifest file describes the plugin and its configuration.
-
-### Manifest File Contents
-
-The manifest file is a YAML file with the following required fields:
-
-```yaml
-PluginName: SamplePlugin
-ExecutablePath: PluginExecutableRelativeToManifest
-Description: This is a sample plugin.
-```
-
-### How to Launch a Plugin
-
-Plugins are supported in `nsys profile` and `nsys start` commands. Plugin processes are launched by Nsight Systems as if it was a target application and terminated at the end of profiling. It is possible to launch multiple instances of the same plugin by using multiple `--enable` options.
-
-```bash
-# Launch with a plugin
-nsys profile --enable=SamplePlugin -- myApp
-
-# Launch multiple instances of the same plugin
-nsys profile --enable=SamplePlugin --enable=SamplePlugin -- myApp
-```
-
-### How to Pass Arguments to a Plugin
-
-To pass arguments to a plugin, specify them as a part of `--enable` option after plugin name when launching the target application.
-
-**Argument Rules:**
-- Arguments should be separated by commas only (no spaces)
-- Commas can be escaped with a backslash `\,`
-- The backslash itself can be escaped by another backslash `\\`
-- To include spaces in an argument, enclose the argument in double quotes `"`
-
-```bash
-# Pass arguments to a plugin
-nsys profile --enable=SamplePlugin,arg1,arg2 -- myApp
-
-# Arguments with spaces
-nsys profile --enable=SamplePlugin,"arg with spaces",arg2 -- myApp
-```
-
-### Supported Platforms
-
-Currently plugins are supported on **x86_64 and arm64 Linux**.
-
-### Sample Plugin
-
-You can look at the Nsight Systems installation path, for example `/opt/nvidia/nsight-systems/2024.5.1/target-linux-x64`, under the directory `samples` for the source code of a sample plugin.
-
-The `NetworkPlugin.cpp` source file is the exact source code for the `network_interface` plugin that ships in binary form with Nsight Systems. Users can modify this plugin or use it as a guide to create their own plugin for profiling their intended source of metrics.
+- [CLI Reference](02-cli-reference.md)
+- [Python and CPU Profiling](09-python-cpu-profiling.md)
+- [Export Formats and SQLite Schema](11-export-sqlite-schema.md)
+- [Release Notes and Troubleshooting](12-release-notes-troubleshooting.md)

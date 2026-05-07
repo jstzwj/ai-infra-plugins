@@ -13,11 +13,19 @@
 | **cuda** | 13.2 | CUDA C++ 编程指南与最佳实践 |
 | **cutile** | - | cuTile 基于 Tile 的 GPU 编程 |
 | **cutlass** | 3.8 | CUTLASS/CuTe GPU 算子开发（GEMM、卷积等） |
+| **deepspeed** | 0.16 | DeepSpeed 分布式训练与推理优化 |
 | **flash-attention** | 2.8.4/4.x | FlashAttention 高效注意力算子 |
+| **jax** | 0.6 | JAX 高性能数值计算与 ML 研究库 |
+| **nsight** | 2025.x | NVIDIA Nsight Systems 性能分析与 Profiling |
+| **onnxruntime** | 1.22 | ONNX Runtime 跨平台推理与训练引擎 |
 | **pytorch** | 2.7 | PyTorch 框架全量参考 |
+| **sglang** | - | SGLang 高性能大模型服务框架 |
+| **tensorflow** | 2.22 | TensorFlow 端到端机器学习平台 |
+| **tile-ir** | 13.2 | Tile IR——NVIDIA GPU 底层 Tile 虚拟机指令集 |
 | **tilelang** | 0.1.0 | TileLang——基于 TVM 的高性能算子 DSL |
 | **triton** | 3.7.0 | Triton GPU 编程语言与编译器 |
 | **tvm** | - | Apache TVM 模型编译与部署 |
+| **vllm** | 0.9 | vLLM 高吞吐大模型推理与服务引擎 |
 | **xla** | 2.0 | XLA 编译器（GPU/CPU/TPU） |
 
 ## 使用方法

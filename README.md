@@ -13,11 +13,19 @@ A curated marketplace of Claude Code plugins for AI infrastructure engineering, 
 | **cuda** | 13.2 | NVIDIA CUDA C++ Programming Guide and Best Practices Guide |
 | **cutile** | - | NVIDIA cuTile tile-based GPU programming model |
 | **cutlass** | 3.8 | NVIDIA CUTLASS/CuTe GPU kernel development (GEMM, convolution, tensor operations) |
+| **deepspeed** | 0.16 | DeepSpeed distributed deep learning training and inference optimization |
 | **flash-attention** | 2.8.4/4.x | FlashAttention fast and memory-efficient exact attention |
+| **jax** | 0.6 | JAX high-performance numerical computing and ML research |
+| **nsight** | 2025.x | NVIDIA Nsight Systems performance analysis and profiling |
+| **onnxruntime** | 1.22 | ONNX Runtime cross-platform inference and training engine |
 | **pytorch** | 2.7 | PyTorch tensor computation and deep learning framework |
+| **sglang** | - | SGLang high-performance LLM serving framework |
+| **tensorflow** | 2.22 | TensorFlow end-to-end machine learning platform |
+| **tile-ir** | 13.2 | Tile IR low-level tile virtual machine for NVIDIA GPUs |
 | **tilelang** | 0.1.0 | TileLang high-performance GPU/CPU kernel DSL on Apache TVM |
 | **triton** | 3.7.0 | OpenAI Triton GPU programming language and compiler |
 | **tvm** | - | Apache TVM machine learning compilation framework |
+| **vllm** | 0.9 | vLLM high-throughput LLM inference and serving engine |
 | **xla** | 2.0 | XLA (Accelerated Linear Algebra) compiler for GPUs, CPUs, and TPUs |
 
 ## Installation

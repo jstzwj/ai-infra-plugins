@@ -158,6 +158,151 @@
         "ml-compilation",
         "gpu"
       ]
+    },
+    {
+      "name": "deepspeed",
+      "description": "Comprehensive reference for DeepSpeed distributed deep learning training and inference optimization library. Covers ZeRO optimization (Stages 0-3), ZeRO-Offload/Infinity, pipeline and tensor parallelism, MoE, inference engines, quantization, custom optimizers, mixed precision training, activation checkpointing, and profiling.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/deepspeed",
+      "homepage": "https://github.com/microsoft/DeepSpeed",
+      "tags": [
+        "ai-infra",
+        "deepspeed",
+        "distributed-training",
+        "zero",
+        "inference-engine",
+        "microsoft"
+      ]
+    },
+    {
+      "name": "jax",
+      "description": "Comprehensive reference for JAX - Google's library for high-performance numerical computing and machine learning research. Covers transformations, jax.numpy, jax.lax, automatic differentiation (grad, custom_jvp, custom_vjp), automatic vectorization (vmap), parallel computing (pjit, shard_map, Mesh), Pallas GPU/TPU kernels, export, FFI, and distributed computing.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/jax",
+      "homepage": "https://github.com/google/jax",
+      "tags": [
+        "ai-infra",
+        "jax",
+        "google",
+        "automatic-differentiation",
+        "jit-compilation",
+        "numerical-computing"
+      ]
+    },
+    {
+      "name": "nsight",
+      "description": "Comprehensive reference for NVIDIA Nsight Systems - a system-wide performance analysis tool. Covers CLI commands, CUDA tracing, GPU metrics, NVTX tracing, network profiling, GUI/report analysis, graphics APIs, Python/CPU profiling, containers migration, and export capabilities.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/nsight",
+      "homepage": "https://docs.nvidia.com/nsight-systems/",
+      "tags": [
+        "ai-infra",
+        "nsight",
+        "nvidia",
+        "profiling",
+        "performance-analysis",
+        "cuda-tools"
+      ]
+    },
+    {
+      "name": "onnxruntime",
+      "description": "Comprehensive reference for ONNX Runtime - the cross-platform high-performance inference and training engine. Covers C/C++/Python API, all Execution Providers (CUDA, TensorRT, OpenVINO, DNNL, CoreML, etc.), graph optimization, custom operators, training (ORTModule), quantization, LoRA adapters, language bindings, WebAssembly deployment, and profiling.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/onnxruntime",
+      "homepage": "https://github.com/microsoft/onnxruntime",
+      "tags": [
+        "ai-infra",
+        "onnxruntime",
+        "microsoft",
+        "inference-engine",
+        "cross-platform",
+        "execution-providers"
+      ]
+    },
+    {
+      "name": "sglang",
+      "description": "High-performance language model serving framework for large language models with continuous batching, speculative decoding, multi-modal support, RadixAttention, and efficient KV cache management.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/sglang",
+      "homepage": "https://github.com/sgl-project/sglang",
+      "tags": [
+        "ai-infra",
+        "sglang",
+        "llm-serving",
+        "continuous-batching",
+        "speculative-decoding",
+        "inference-engine"
+      ]
+    },
+    {
+      "name": "tensorflow",
+      "description": "Comprehensive reference for TensorFlow - the end-to-end machine learning platform. Covers TensorFlow 2.x Python API (tensors, tf.function, tf.data, Keras, distributed training), C++ core (graph execution, kernels, grappler), XLA compiler, TensorFlow Lite (converter, delegates, TFLite Micro), SavedModel, profiling, and deployment.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/tensorflow",
+      "homepage": "https://tensorflow.org/",
+      "tags": [
+        "ai-infra",
+        "tensorflow",
+        "google",
+        "deep-learning",
+        "keras",
+        "distributed-training"
+      ]
+    },
+    {
+      "name": "tile-ir",
+      "description": "Comprehensive reference for Tile IR - a portable, low-level tile virtual machine and instruction set for NVIDIA GPUs. Covers programming model, syntax reference, binary format, type system, semantics, memory model, operations reference, debug information, and stability guidelines.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/tile-ir",
+      "homepage": "https://docs.nvidia.com/cuda/tile-ir/",
+      "tags": [
+        "ai-infra",
+        "tile-ir",
+        "nvidia",
+        "cuda",
+        "gpu-programming",
+        "instruction-set"
+      ]
+    },
+    {
+      "name": "vllm",
+      "description": "Comprehensive reference for vLLM - a high-throughput and memory-efficient inference and serving engine for large language models. Covers V0/V1 architecture, engine APIs, OpenAI-compatible server, PagedAttention, KV cache management, sampling/decoding, distributed inference, multimodal processing, quantization (FP8, GPTQ, AWQ), LoRA, speculative decoding, and 200+ supported model architectures.",
+      "author": {
+        "name": "AI Infra"
+      },
+      "category": "development",
+      "source": "./plugins/vllm",
+      "homepage": "https://github.com/vllm-project/vllm",
+      "tags": [
+        "ai-infra",
+        "vllm",
+        "llm-inference",
+        "pagedattention",
+        "high-throughput",
+        "serving-engine",
+        "quantization"
+      ]
     }
   ]
 }

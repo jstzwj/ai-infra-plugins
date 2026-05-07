@@ -1,769 +1,935 @@
 # Nsight Systems GUI Report Analysis Reference
 
+This document provides comprehensive reference material for using the Nsight Systems GUI to profile targets, analyze reports, navigate the timeline, and use the various analysis views. It covers profiling from the GUI for Linux, Windows, QNX, and JupyterLab targets, as well as all report analysis features including timeline navigation, function tables, events view, multi-report views, and flame graph generation.
+
+---
+
 ## Table of Contents
 
-- [Profiling from the GUI](#profiling-from-the-gui)
-- [System-Wide Profiling Options](#system-wide-profiling-options)
-- [Target Sampling Options](#target-sampling-options)
-- [Hotkey Trace Start/Stop](#hotkey-trace-startstop)
-- [Launching Processes](#launching-processes)
-- [Windows Target Profiling](#windows-target-profiling)
-- [QNX Target Profiling](#qnx-target-profiling)
-- [Generating, Opening, and Sharing Reports](#generating-opening-and-sharing-reports)
-- [Report Tab Structure](#report-tab-structure)
-- [Analysis Summary View](#analysis-summary-view)
-- [Diagnostics Summary View](#diagnostics-summary-view)
-- [Symbol Resolution Logs](#symbol-resolution-logs)
-- [Timeline View](#timeline-view)
-- [Timeline Options](#timeline-options)
-- [Events View](#events-view)
-- [Function Table Modes](#function-table-modes)
-- [Backtraces Explanation](#backtraces-explanation)
-- [Multi-Report Timeline Views](#multi-report-timeline-views)
-- [Flame Graph Generation](#flame-graph-generation)
+1. [Profiling from the GUI](#profiling-from-gui)
+2. [Profiling Linux Targets from the GUI](#profiling-linux)
+   - [Connecting to the Target Device](#connecting-linux)
+   - [Open Ports](#open-ports)
+   - [Kernel Version Number](#kernel-version)
+   - [Netcat Requirement](#netcat-requirement)
+3. [System-Wide Profiling Options](#system-wide-options)
+4. [Target Sampling Options](#target-sampling)
+5. [Hotkey Trace Start/Stop](#hotkey-trace)
+6. [Launching Processes](#launching-processes)
+7. [Profiling Windows Targets from the GUI](#profiling-windows)
+   - [Remoting to a Windows Based Machine](#remoting-windows)
+   - [Hotkey Trace Start/Stop (Windows)](#hotkey-windows)
+   - [Changing the Default Hotkey Binding](#changing-hotkey)
+   - [Target Sampling Options on Windows](#sampling-windows)
+   - [Thread Activity Option](#thread-activity)
+   - [Symbol Locations](#symbol-locations)
+8. [Profiling QNX Targets from the GUI](#profiling-qnx)
+9. [Profiling within JupyterLab](#profiling-jupyterlab)
+10. [Report Management](#report-management)
+    - [ImportNvtxt Commands](#importnvtxt)
+    - [Generating a New Report](#generating-report)
+    - [Opening an Existing Report](#opening-report)
+    - [Sharing a Report File](#sharing-report)
+    - [Report Tab](#report-tab)
+11. [Analysis Summary View](#analysis-summary)
+12. [Diagnostics Summary View](#diagnostics-summary)
+13. [Symbol Resolution Logs View](#symbol-resolution)
+14. [Timeline View](#timeline-view)
+    - [Timeline Navigation](#timeline-navigation)
+    - [Zoom and Scroll](#zoom-scroll)
+    - [Timeline/Events Correlation](#timeline-events-correlation)
+    - [Row Height](#row-height)
+    - [Row Percentage](#row-percentage)
+    - [Timeline Options](#timeline-options)
+15. [Events View](#events-view)
+16. [Function Table Modes](#function-table-modes)
+    - [Top-Down View](#top-down-view)
+    - [Bottom-Up View](#bottom-up-view)
+    - [Flat View](#flat-view)
+    - [Function Table Notes](#function-table-notes)
+17. [Filter Dialog](#filter-dialog)
+18. [Example: Using Timeline with Function Table](#timeline-function-table-example)
+19. [Backtraces](#backtraces)
+20. [Multi-Report Timeline Views](#multi-report-views)
+    - [Viewing Multiple Reports in Separate Panes](#separate-panes)
+    - [Viewing Multiple Reports in the Same Timeline](#same-timeline)
+    - [Time Synchronization](#time-sync)
+    - [Timeline Hierarchy](#timeline-hierarchy)
+    - [Example: MPI](#mpi-example)
+    - [Limitations](#multi-report-limitations)
+21. [Add-on Graphs - Flame Graph](#flame-graph)
 
 ---
 
 ## Profiling from the GUI
 
+<a id="profiling-from-gui"></a>
+
 Nsight Systems provides a graphical user interface for launching profiling sessions on local and remote targets. The GUI simplifies the collection process by providing dialogs for all configurable options.
 
-### Connecting to a Target
+---
 
-1. Launch Nsight Systems GUI (`nsys-ui` on Linux, Nsight Systems from Start Menu on Windows).
-2. Create a new project or open an existing one.
-3. In the **Target** field, specify the connection:
-   - **Local target**: Leave as `localhost` or select from the dropdown.
-   - **Remote target**: Enter the hostname or IP address.
-4. Configure the connection method:
+## Profiling Linux Targets from the GUI
 
-| Connection Method | Description |
-|---|---|
-| **SSH** | Default method for Linux-to-Linux and Windows-to-Linux profiling. Uses the system SSH client. |
-| **SSH with key** | Provide a private key file for authentication instead of password. |
-| **Custom** | Use a custom connection script for non-standard setups. |
+<a id="profiling-linux"></a>
 
-### SSH Connection Details
+### Connecting to the Target Device
 
-- Nsight Systems uses SSH to deploy the CLI binary to the remote target if it is not already installed.
-- The default SSH port is `22`. You can specify a custom port in the hostname field using the format `hostname:port`.
-- SSH tunneling is used for communication between the GUI and the target CLI.
+<a id="connecting-linux"></a>
 
-### Security Considerations
+Nsight Systems provides a simple interface to profile on localhost or manage multiple connections to Linux or Windows based devices via SSH. The network connections manager can be launched through the device selection dropdown.
 
-- The GUI transfers the `nsys` CLI binary to the target via SCP if the target does not have Nsight Systems installed.
-- Ensure the SSH user has sufficient permissions to run profiling workloads.
-- For containerized environments, ensure the target has the necessary capabilities (see [Container Support](10-containers-migration.md)).
+On **x86_64** and **Tegra** platforms, the dialog has simple controls that allow adding, removing, and modifying connections.
 
-### Port Configuration
+#### Security Notice
 
-- Nsight Systems uses ephemeral ports for GUI-to-target communication.
-- If a firewall is present, ensure the specified port range is open.
-- You can configure the port range in **File > Preferences > Connection**.
+SSH is only used to establish the initial connection to a target device, perform checks, and upload necessary files. The actual profiling commands and data are transferred through a raw, unencrypted socket. **Nsight Systems should not be used in a network setup where attacker-in-the-middle attack is possible, or where untrusted parties may have network access to the target device.**
 
-### Kernel Version Requirements
+While connecting to the target device, you will be prompted to input the user's password. Note that if you choose to remember the password, it will be stored in **plain text** in the configuration file on the host. Stored passwords are bound to the public key fingerprint of the remote device.
 
-- Linux targets require kernel version 3.10 or later for basic profiling.
-- CPU sampling (backtrace) requires kernel version 4.3 or later.
-- The target must support `perf_event_open` system call for sampling-based profiling.
+#### No Authentication Option
+
+The No authentication option is useful for devices configured for passwordless login using root username. To enable such a configuration, edit the file `/etc/ssh/sshd_config` on the target and specify the following option:
+
+```ini
+PermitRootLogin yes
+```
+
+Then set empty password using `passwd` and restart the SSH service with `service ssh restart`.
+
+### Open Ports
+
+<a id="open-ports"></a>
+
+The Nsight Systems daemon requires **port 22** and **port 45555** to be open for listening. You can confirm that these ports are open with the following command:
+
+```bash
+sudo firewall-cmd --list-ports --permanent
+sudo firewall-cmd --reload
+```
+
+To open a port use the following command (skip `--permanent` option to open only for this session):
+
+```bash
+sudo firewall-cmd --permanent --add-port 45555/tcp
+sudo firewall-cmd --reload
+```
+
+Likewise, if you are running on a cloud system, you must open port 22 and port 45555 for ingress.
+
+### Kernel Version Number
+
+<a id="kernel-version"></a>
+
+To check for the version number of the kernel support of Nsight Systems on a target device, run the following command on the remote device:
+
+```bash
+cat /proc/quadd/version
+```
+
+Minimal supported version is **1.82**.
+
+### Netcat Requirement
+
+<a id="netcat-requirement"></a>
+
+Presence of the Netcat command (`nc`) is required on the target device. For example, on Ubuntu this package can be installed using the following command:
+
+```bash
+sudo apt-get install netcat-openbsd
+```
 
 ---
 
 ## System-Wide Profiling Options
 
-System-wide profiling captures activity from all processes running on the target, not just the launched application.
+<a id="system-wide-options"></a>
 
-| Option | Description | Default |
-|---|---|---|
-| **Duration** | How long to profile (seconds). `0` means profile until manually stopped. | 0 |
-| **CPU sampling** | Enable/disable CPU IP and backtrace sampling. | Enabled |
-| **CPU context switches** | Record thread context switch events. | Enabled |
-| **GPU metrics** | Collect GPU utilization and memory metrics. | Disabled |
-| **PCIe metrics** | Collect PCIe bandwidth metrics. | Disabled |
-| **Network metrics** | Collect network interface throughput metrics. | Disabled |
-| **Power/energy metrics** | Collect power consumption data. | Disabled |
-| **Clock frequency metrics** | Collect CPU and GPU clock frequency data. | Disabled |
-
-### System-Wide Profiling Workflow
-
-1. Select **Profile > System Wide** from the menu.
-2. Configure target connection and options.
-3. Click **Start** to begin collection.
-4. Click **Stop** (or use hotkey) to end collection.
-5. The report is automatically transferred to the GUI host.
+System-wide profiling captures activity from all processes running on the target, not just the launched application. The options are configurable from the GUI in the project settings.
 
 ---
 
 ## Target Sampling Options
 
-The sampling configuration controls how CPU profiling data is collected.
+<a id="target-sampling"></a>
 
-| Parameter | Description | Default |
-|---|---|---|
-| **Sampling frequency** | Number of samples per second per CPU core. | 1000 Hz |
-| **Sample backtraces** | Collect call stack backtraces at each sample. | Enabled |
-| **Wait for CPU** | Include time threads spent waiting to be scheduled on a CPU. | Enabled |
+Target sampling behavior is somewhat different for Nsight Systems Workstation Edition and Nsight Systems Embedded Platforms Edition.
 
-### Sampling Frequency Recommendations
+The sampling configuration controls how CPU profiling data is collected:
 
-| Frequency | Use Case | Overhead |
-|---|---|---|
-| 100 Hz | Long-running applications, minimal overhead | Very Low |
-| 1000 Hz | General purpose profiling | Low |
-| 5000 Hz | Detailed hotspot analysis | Moderate |
-| 10000 Hz | Fine-grained per-function analysis | High |
-| 20000 Hz+ | Maximum detail, short captures only | Very High |
+| Parameter | Description |
+|---|---|
+| **Sampling frequency** | Number of samples per second per CPU core. Available values: 100 Hz, 1 KHz (default), 2 KHz, 4 KHz, 8 KHz |
+| **Sample backtraces** | Collect call stack backtraces at each sample |
+| **Wait for CPU** | Include time threads spent waiting to be scheduled on a CPU |
 
 ---
 
 ## Hotkey Trace Start/Stop
 
-Nsight Systems supports hotkeys to start and stop tracing on the target without GUI interaction.
+<a id="hotkey-trace"></a>
 
-### Linux Hotkeys
+Nsight Systems Workstation Edition can use hotkeys to control profiling. Press the hotkey to start and/or stop a trace session from within the target application's graphic window. This is useful when tracing games and graphic applications that use fullscreen display. In these scenarios, switching to Nsight Systems' UI would unnecessarily introduce the window manager's footprint into the trace.
 
-| Action | Default Hotkey | Notes |
-|---|---|---|
-| Start trace | `Ctrl+T` | Only works in the terminal where `nsys` is running |
-| Stop trace | `Ctrl+T` | Toggles between start and stop |
+To enable the use of Hotkey, check the **Hotkey checkbox** in the project settings page.
 
-To use hotkey-based tracing from the CLI:
-
-```bash
-nsys start --hotkey
-# Press Ctrl+T to start tracing
-# Press Ctrl+T again to stop tracing
-nsys stop
-```
-
-### Windows Hotkeys
-
-| Action | Default Hotkey | Notes |
-|---|---|---|
-| Start trace | `Ctrl+T` | Only in the console window where nsys is running |
-| Stop trace | `Ctrl+T` | Toggles between start and stop |
-
-### Notes
-
-- Hotkeys only work in interactive terminal sessions. They are not supported in batch scripts or SSH sessions without a TTY.
-- For non-interactive environments, use `nsys start` and `nsys stop` commands, or use NVTX range annotations to control trace windows programmatically.
+The **default hotkey is F12**.
 
 ---
 
 ## Launching Processes
 
-When using the GUI to launch a process for profiling:
+<a id="launching-processes"></a>
 
-1. **Application Path**: Full path to the executable on the target system.
-2. **Working Directory**: The directory from which the application will be launched.
-3. **Command Line Arguments**: Arguments passed to the application.
-4. **Environment Variables**: Key-value pairs set before launch.
-5. **Run as**: User context (for remote profiling).
+Nsight Systems can launch new processes for profiling on target devices. The profiler ensures that all environment variables are set correctly to successfully collect trace information.
 
-### Launch Mode Options
-
-| Mode | Description |
-|---|---|
-| **Launch** | Start a new process and profile it from the beginning. |
-| **Attach** | Attach to an already running process by PID. |
-| **Launch with warmup** | Start the process, then begin tracing after a delay or on trigger. |
-| **Profile entire system** | Profile all processes system-wide. |
-
-### Environment Variable Examples
-
-```bash
-# Set CUDA device
-CUDA_VISIBLE_DEVICES=0
-
-# Enable NVTX in CUDA applications
-NVTX_INJECTION64_PATH=libnvtx.so
-
-# Set library path
-LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-```
+The **Edit arguments...** link will open an editor window, where every command line argument is edited on a separate line. This is convenient when arguments contain spaces or quotes.
 
 ---
 
-## Windows Target Profiling
+## Profiling Windows Targets from the GUI
 
-### OpenSSH Requirements
+<a id="profiling-windows"></a>
 
-Windows target profiling requires OpenSSH to be installed and running on the Windows target.
+Profiling on Windows devices is similar to the profiling on Linux devices. The major differences on the platforms are listed below.
 
-1. Install OpenSSH Server:
-   ```powershell
-   # In PowerShell as Administrator
-   Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-   Start-Service sshd
-   Set-Service -Name sshd -StartupType Automatic
-   ```
+### Remoting to a Windows Based Machine
 
-2. Verify the service is running:
-   ```powershell
-   Get-Service sshd
-   ```
+<a id="remoting-windows"></a>
 
-3. Ensure the SSH user is a member of the `Performance Log Users` group or has Administrator privileges for full profiling capability.
+To perform remote profiling to a target Windows based machine, install and configure an **OpenSSH Server** on the target machine.
+
+### Hotkey Trace Start/Stop (Windows)
+
+<a id="hotkey-windows"></a>
+
+Nsight Systems Workstation Edition can use hotkeys to control profiling. Press the hotkey to start and/or stop a trace session from within the target application's graphic window. This is useful when tracing games and graphic applications that use fullscreen display.
+
+To enable the use of Hotkey, check the **Hotkey checkbox** in the project settings page. The default hotkey is **F12**.
+
+#### Changing the Default Hotkey Binding
+
+<a id="changing-hotkey"></a>
+
+A different hotkey binding can be configured by setting the `HotKeyIntValue` configuration field in the `config.ini` file.
+
+Set the decimal numeric identifier of the hotkey you would like to use for triggering start/stop from the target app graphics window. The default value is **123** which corresponds to **0x7B**, or the **F12** key.
+
+Virtual key identifiers are detailed in MSDN's Virtual-Key Codes documentation.
+
+Note that you must convert the hexadecimal values detailed in the page to their decimal counterpart before using them in the file. For example, to use the **F1** key as a start/stop trace hotkey, use the following settings in the config.ini file:
+
+```ini
+HotKeyIntValue=112
+```
+
+### Target Sampling Options on Windows
+
+<a id="sampling-windows"></a>
+
+Nsight Systems can sample one process tree. Sampling here means interrupting each processor periodically. The sampling rate is defined in the project settings and is either **100 Hz**, **1 KHz** (default value), **2 KHz**, **4 KHz**, or **8 KHz**.
+
+### Thread Activity Option
+
+<a id="thread-activity"></a>
+
+On Windows, Nsight Systems can collect thread activity of one process tree. Collecting thread activity means that each thread context switch event is logged and (optionally) a backtrace is collected at the point that the thread is scheduled back for execution. Thread states are displayed on the timeline.
+
+If it was collected, the thread backtrace is displayed when hovering over a region where the thread execution is blocked.
 
 ### Symbol Locations
 
-For proper function name resolution in CPU sampling:
+<a id="symbol-locations"></a>
 
-- PDB files must be accessible on the target or through a symbol server.
-- Configure symbol search paths in **File > Preferences > Symbols**.
-- Supported symbol sources:
-  - Local file system paths
-  - Symbol servers (using `symsrv.dll`)
-  - `_NT_SYMBOL_PATH` environment variable
+Symbol resolution happens on host, and therefore does not affect performance of profiling on the target.
 
-### PDB File Handling
+Press the **Symbol locations...** button to open the Configure debug symbols location dialog. Use this dialog to specify:
 
-| Scenario | Solution |
-|---|---|
-| PDB next to EXE/DLL | Automatically found |
-| PDB in a different directory | Add the directory to symbol search paths |
-| PDB on a symbol server | Configure `_NT_ALT_SYMBOL_PATH` or use the GUI preference |
-| Stripped PDB (public symbols only) | Limited function name resolution |
+- Paths of PDB files
+- Symbol servers
+- The location of the local symbol cache
+
+To use a symbol server:
+
+1. Install **Debugging Tools for Windows**, a part of the Windows 10 SDK.
+2. Add the symbol server URL using the **Add Server** button.
+3. Information about Microsoft's public symbol server, which enables getting Windows operating system related debug symbols, can be found in the Microsoft documentation.
 
 ---
 
-## QNX Target Profiling
+## Profiling QNX Targets from the GUI
 
-Nsight Systems supports profiling on QNX Neutrino RTOS targets.
+<a id="profiling-qnx"></a>
 
-### Prerequisites
+Profiling on QNX devices is similar to the profiling on Linux devices. The major differences are listed below:
 
-- QNX SDP 7.0 or later
-- SSH or serial connection to the QNX target
-- `nsys` binary for QNX (cross-compiled)
+- **Backtrace sampling is not supported**. Instead backtraces are collected for long OS runtime libraries calls. Refer to the OS Runtime Libraries Trace section for detailed documentation.
+- **CUDA support is limited to CUDA 9.0+**.
+- **Filesystem on QNX device might be mounted read-only**. In that case Nsight Systems is not able to install target-side binaries required to run the profiling session. Please make sure that target filesystem is writable before connecting to QNX target. For example, make sure the following command works:
 
-### Connection Setup
-
-1. Select **Profile > New Project**.
-2. Set the target platform to **QNX**.
-3. Enter the target hostname/IP and credentials.
-4. Nsight Systems will deploy the QNX binary via SSH.
-
-### Limitations on QNX
-
-- CPU sampling uses `devc-perf` interface instead of Linux `perf_event_open`.
-- GPU tracing may have limited support depending on the GPU.
-- Some metrics (PCIe, power) may not be available.
-
----
-
-## Generating, Opening, and Sharing Reports
-
-### Generating Reports
-
-Reports are generated automatically after a profiling session completes. The output format is `.nsys-rep`.
-
-From the CLI:
 ```bash
-nsys profile -o my_report my_application
-# Produces my_report.nsys-rep
+echo XX > /xx && ls -l /xx
 ```
 
-From the GUI: Reports are created in the temporary directory and can be saved to a permanent location.
+---
 
-### Opening Reports
+## Profiling within JupyterLab
 
-| Method | Description |
-|---|---|
-| **File > Open** | Open a `.nsys-rep` file from disk. |
-| **Drag and drop** | Drag a `.nsys-rep` file onto the GUI window. |
-| **Command line** | `nsys-ui report.nsys-rep` |
-| **Auto-open** | After a profiling session, the report opens automatically. |
+<a id="profiling-jupyterlab"></a>
 
-### Sharing Reports
+The JupyterLab Nsight extension integrates Nsight Systems profiling into JupyterLab for profiling of Jupyter notebook cells. CUDA kernels launched by the cells as well as CUDA and Python code execution can be profiled and analyzed.
 
-- `.nsys-rep` files are self-contained and can be shared with other users.
-- Recipients need Nsight Systems GUI (same or later version) to open the report.
-- For version compatibility: newer GUI versions can open older reports, but older GUI versions may not open newer reports.
-- Export to SQLite for programmatic analysis:
-  ```bash
-  nsys export -t sqlite -o report.sqlite report.nsys-rep
-  ```
-
-### Report File Sizes
-
-| Profiling Type | Typical Size |
-|---|---|
-| Short CPU-only trace | 1-10 MB |
-| GPU + CPU trace (1 minute) | 10-100 MB |
-| System-wide with metrics | 100 MB - 1 GB |
-| Long traces with sampling | 1 GB+ |
+For more information and to install the extension, go to **JupyterLab Nsight extension on PyPI**.
 
 ---
 
-## Report Tab Structure
+## Report Management
 
-When a report is opened, it is displayed in a tab with the following structure:
+<a id="report-management"></a>
 
-### View Selector (Left Pane)
+### ImportNvtxt Commands
 
-The left pane contains the view selector with the following sections:
+<a id="importnvtxt"></a>
 
-| Section | Description |
+Nsight Systems supports importing NVTXT (external counter data) files. Time stamps can be based on different clock sources:
+
+| Timestamp Type | Description |
 |---|---|
-| **Analysis Summary** | High-level overview of profiling results with key metrics. |
-| **Diagnostics** | Warnings and errors encountered during profiling. |
-| **Timeline** | Visual timeline of CPU, GPU, and API activity. |
-| **Events** | Detailed list of all recorded events with filtering. |
-| **Function Table** | Aggregated function statistics (Top-Down, Bottom-Up, Flat). |
+| Global | Timestamps are considered to be nanoseconds |
+| TSC | Timestamps use the Timestamp Counter |
+| CNTVCT | Timestamps use the generic timer (CNTVCT) |
 
-### Timeline Area (Center Pane)
+#### Help Message
 
-The center pane displays the timeline visualization with rows for:
-- Process threads
-- GPU streams
-- HW engines
-- API calls
-- NVTX ranges
-- Memory operations
+```
+-h [ --help ]
+```
 
-### Function/Details Table (Bottom Pane)
+#### Info Command
 
-The bottom pane shows the function table or details for the selected timeline row, depending on the active view.
+Find out report's start and end time:
+
+```bash
+ImportNvtxt --cmd info -i [--input] arg
+```
+
+Example:
+
+```
+ImportNvtxt info Report.nsys-rep
+Analysis start (ns) 83501026500000
+Analysis end (ns)   83506375000000
+```
+
+#### Create Command
+
+Create a report file using an existing NVTXT file:
+
+```bash
+ImportNvtxt --cmd create -n [--nvtxt] arg -o [--output] arg [-m [--mode] mode_name mode_args] [--target <Hw:Vm>] [--update_report_time]
+```
+
+Example:
+
+```bash
+ImportNvtxt --cmd create -n Sample.nvtxt -o Report.nsys-rep
+```
+
+The output will be a new generated report file which can be opened and viewed by Nsight Systems.
+
+#### Merge Command
+
+Merge an NVTXT file with an existing report file:
+
+```bash
+ImportNvtxt --cmd merge -i [--input] arg -n [--nvtxt] arg -o [--output] arg [-m [--mode] mode_name mode_args] [--target <Hw:Vm>] [--update_report_time]
+```
+
+Example:
+
+```bash
+ImportNvtxt --cmd merge -i Report.nsys-rep -n Sample.nvtxt -o NewReport.nsys-rep
+```
+
+#### Modes
+
+Available modes for time conversion:
+
+| Mode | Description |
+|---|---|
+| `lerp` | Insert with linear interpolation |
+| `lin` | Insert with linear equation |
+
+**lerp mode:**
+
+```
+--mode lerp --ns_a arg --ns_b arg [--nvtxt_a arg --nvtxt_b arg]
+```
+
+| Parameter | Description |
+|---|---|
+| `ns_a` | A nanoseconds value |
+| `ns_b` | A nanoseconds value (greater than ns_a) |
+| `nvtxt_a` | An nvtxt file's time unit value corresponding to ns_a nanoseconds |
+| `nvtxt_b` | An nvtxt file's time unit value corresponding to ns_b nanoseconds |
+
+If `nvtxt_a` and `nvtxt_b` are not specified, they are respectively set to the nvtxt file's minimum and maximum time value.
+
+**lin mode:**
+
+```
+--mode lin --ns_a arg --freq arg [--nvtxt_a arg]
+```
+
+| Parameter | Description |
+|---|---|
+| `ns_a` | A nanoseconds value |
+| `freq` | The nvtxt file's timer frequency |
+| `nvtxt_a` | An nvtxt file's time unit value corresponding to ns_a nanoseconds |
+
+If `nvtxt_a` is not specified, it is set to the nvtxt file's minimum time value.
+
+**Common parameters:**
+
+| Parameter | Description |
+|---|---|
+| `--target <Hw:Vm>` | Specify target id, e.g., `--target 0:1` |
+| `--update_report_time` | Prolong report's profiling session time while merging if needed. Without this option all events outside the profiling session time window will be skipped during merging. |
+
+Time values in `<filename.nvtxt>` are assumed to be nanoseconds if no mode is specified.
+
+### Generating a New Report
+
+<a id="generating-report"></a>
+
+Users can generate a new report by stopping a profiling session. If a profiling session has been canceled, a report will **not** be generated, and all collected data will be discarded.
+
+A new `.nsys-rep` file will be created and put into the same directory as the project file (`.qdproj`).
+
+### Opening an Existing Report
+
+<a id="opening-report"></a>
+
+An existing `.nsys-rep` file can be opened using **File > Open...**.
+
+### Sharing a Report File
+
+<a id="sharing-report"></a>
+
+Report files (`.nsys-rep`) are **self-contained** and can be shared with other users of Nsight Systems. The only requirement is that the **same or newer version** of Nsight Systems is always used to open report files.
+
+Project files (`.qdproj`) are currently not shareable, since they contain full paths to the report files.
+
+To quickly navigate to the directory containing the report file, right click on it in the Project Explorer, and choose **Show in folder...** in the context menu.
+
+### Report Tab
+
+<a id="report-tab"></a>
+
+While generating a new report or loading an existing one, a new tab will be created. The most important parts of the report tab are:
+
+| Component | Description |
+|---|---|
+| **View selector** | Allows switching between Multi-report view (absent for single reports), Analysis Summary, Timeline View, Diagnostics Summary, and Symbol Resolution Logs views |
+| **Timeline** | This is where all charts are displayed |
+| **Function table** | Located below the timeline, it displays statistical information about functions in the target application in multiple ways |
+| **Zoom slider** | Allows you to vertically zoom the charts on the timeline |
 
 ---
 
 ## Analysis Summary View
 
-The Analysis Summary View provides a high-level overview of the profiling session.
+<a id="analysis-summary"></a>
 
-### Sections
+This view shows a summary of the profiling session. In particular, it is useful to review the project configuration used to generate this report. Information from this view can be selected and copied using the mouse cursor.
 
-| Section | Content |
-|---|---|
-| **Project Summary** | Application name, arguments, duration, date, target info. |
-| **GPU Summary** | Per-GPU utilization, kernel counts, memcpy counts and sizes. |
-| **CPU Summary** | Thread count, process tree, context switch counts. |
-| **Warning Summary** | Performance warnings and suggestions. |
-| **CUDA API Summary** | Time spent in CUDA runtime and driver APIs. |
-| **Memory Transfer Summary** | Sizes and durations of memory copies. |
-| **Kernel Summary** | Top GPU kernels by total duration. |
-| **Sampling Summary** | Top CPU functions by sample count. |
+Key information displayed includes:
 
-### Key Metrics
-
-| Metric | Description |
-|---|---|
-| **GPU Time** | Total time GPUs spent executing work. |
-| **GPU Utilization** | Percentage of time the GPU was busy. |
-| **CPU Utilization** | Per-thread CPU usage percentage. |
-| **Memory Throughput** | Aggregate memcpy bandwidth. |
-| **Kernel Count** | Total number of GPU kernel launches. |
+- Project configuration settings
+- Application name and arguments
+- Duration of the profiling session
+- Target device information
+- UTC time at t=0
+- TSC value at t=0
+- Report alignment source (for multi-report views)
 
 ---
 
 ## Diagnostics Summary View
 
-The Diagnostics Summary View shows warnings, errors, and informational messages from the profiling session.
+<a id="diagnostics-summary"></a>
 
-### Message Categories
+This view shows important messages. Some of them were generated during the profiling session, while some were added while processing and analyzing data in the report. Messages can be one of the following types:
 
-| Category | Description |
+| Type | Description |
 |---|---|
-| **Error** | Critical issues that may have affected data collection. |
-| **Warning** | Non-critical issues that may affect data quality. |
-| **Info** | Informational messages about the profiling configuration. |
+| **Informational messages** | General information about the profiling session |
+| **Warnings** | Non-critical issues that may affect data quality |
+| **Errors** | Critical issues that may have affected data collection |
 
-### Common Diagnostic Messages
+To draw attention to important diagnostics messages, a **summary line** is displayed on the timeline view in the top right corner.
 
-| Message | Cause | Resolution |
-|---|---|---|
-| "CPU sampling rate was throttled" | System-level throttling of perf events | Reduce sampling frequency or shorten trace duration |
-| "GPU context was not captured" | GPU trace started after context creation | Use `--cuda-memory-usage` or restart with full trace |
-| "Symbol resolution failed for module X" | Missing symbol files | Add symbol paths in preferences |
-| "perf_event_open failed" | `perf_event_paranoid` too restrictive | Set `/proc/sys/kernel/perf_event_paranoid` to -1 or 0 |
-| "Trace buffer overflow" | Too many events for the buffer size | Increase buffer size with `--buffer-size` option |
-| "NVTX domain not found" | Application uses NVTX but domain was not enabled | Enable NVTX tracing with `--trace=nvtx` |
+Information from this view can be selected and copied using the mouse cursor.
 
 ---
 
-## Symbol Resolution Logs
+## Symbol Resolution Logs View
 
-The Symbol Resolution Logs provide details about symbol loading and resolution during report analysis.
+<a id="symbol-resolution"></a>
 
-### Log Contents
-
-- **Loaded modules**: List of all binaries loaded during profiling.
-- **Symbol search paths**: Paths searched for debug symbols.
-- **Resolved symbols**: Successfully resolved symbol files.
-- **Unresolved symbols**: Modules for which symbols could not be found.
-- **Symbol load errors**: Errors encountered during symbol loading.
-
-### Accessing Symbol Logs
-
-1. Open a report in the GUI.
-2. Select **View > Symbol Resolution Log** or check the Diagnostics view.
-3. Review the log for any unresolved modules.
-
-### Configuring Symbol Paths
-
-```bash
-# Linux: Set symbol search paths
-export Nsight_Systems_SymbolPath=/path/to/symbols:/another/path
-
-# Windows: Use _NT_SYMBOL_PATH
-set _NT_SYMBOL_PATH=SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols
-```
-
-In the GUI: **File > Preferences > Symbols > Add Path**
+This view shows all messages related to the process of resolving symbols. It might be useful to debug issues when some of the symbol names in the symbols table of the timeline view are unresolved.
 
 ---
 
 ## Timeline View
 
-The Timeline View is the primary visualization for understanding application behavior over time.
+<a id="timeline-view"></a>
 
-### Navigation
+The timeline view consists of two main controls: the timeline at the top, and a bottom pane that contains the events view and the function table. In some cases, when sampling of a process has not been enabled, the function table might be empty and hidden.
 
-| Action | Shortcut | Description |
-|---|---|---|
-| Zoom in | `Ctrl+Mouse Wheel` or `+` | Zoom in on the timeline center. |
-| Zoom out | `Ctrl+Mouse Wheel` or `-` | Zoom out from the timeline center. |
-| Zoom to selection | `Ctrl+Shift+Z` | Zoom to fit the selected range. |
-| Zoom to full trace | `Ctrl+Home` | Show the entire trace. |
-| Pan left | `Left Arrow` or `Shift+Mouse Wheel` | Scroll timeline to the left. |
-| Pan right | `Right Arrow` or `Shift+Mouse Wheel` | Scroll timeline to the right. |
-| Select range | `Click and drag` | Select a time range. |
-| Select event | `Click` | Select a single event. |
-| Go to time | `Ctrl+G` | Jump to a specific timestamp. |
-| Reset view | `Ctrl+Home` | Reset to full trace view. |
+The bottom view selector sets the view that is displayed in the bottom pane.
 
-### Zoom and Scroll
+### Timeline
 
-- **Horizontal zoom**: Changes the time resolution (nanoseconds per pixel).
-- **Vertical zoom**: Changes the row height (pixels per row).
-- **Minimap**: The bar at the top shows the full trace with a viewport indicator.
-- **Time ruler**: Shows absolute and relative timestamps.
+Timeline is a versatile control that contains a tree-like hierarchy on the left, a line labels column in the center, and the corresponding charts on the right. The line labels column can be hidden by using the timeline options.
 
-### Timeline and Events Correlation
+Contents of the hierarchy depend on the project settings used to collect the report. For example, if a certain feature has not been enabled, corresponding rows will not be shown on the timeline.
 
-- Clicking an event in the timeline highlights it and shows details in the bottom pane.
-- Hovering over an event shows a tooltip with duration, API name, and arguments.
-- Right-clicking an event provides context options:
-  - **Zoom to Event**
-  - **Find Similar Events**
-  - **View Source** (if symbols are available)
-  - **Copy Event Details**
+To generate a timeline screenshot without opening the full GUI, use the command:
 
-### Row Height and Row Percentage
+```bash
+nsys-ui.exe --screenshot filename.nsys-rep
+```
+
+Hovering over elements in the GUI will cause a tooltip to pop open as appropriate to give additional information, such as the parameters of that function call or the call stack. Tooltips can be copied by hovering and right clicking to bring up the **Copy Tooltip** option in the context menu.
+
+### Timeline Navigation
+
+<a id="timeline-navigation"></a>
+
+#### Zoom and Scroll
+
+<a id="zoom-scroll"></a>
+
+At the upper right portion of the Nsight Systems GUI, there is a vertical slider that sets the vertical size of screen rows, and a magnifying glass that resets it to the original settings.
+
+There are many ways to zoom and scroll horizontally through the timeline:
+
+| Action | Description |
+|---|---|
+| Mouse wheel | Scroll or zoom depending on modifier key |
+| Click and drag | Select a time range |
+| `+` / `-` keys | Zoom in/out |
+| Arrow keys | Pan left/right |
+| `Ctrl+Home` | Reset to full trace view |
+
+#### Timeline/Events Correlation
+
+<a id="timeline-events-correlation"></a>
+
+To display trace events in the Events View, right-click a timeline row and select the **Show in Events View** command. The events of the selected row and all of its sub-rows will be displayed in the Events View. Note that the events displayed will correspond to the current zoom in the timeline; zooming in or out will reset the event pane filter.
+
+If a timeline row has been selected for display in the Events View, then double-clicking a timeline item on that row will automatically scroll the content of the Events View to make the corresponding events view item visible and select it. If that event has tool tip information, it will be displayed in the right hand pane.
+
+Likewise, double-clicking on a particular instance in the Events View will highlight the corresponding event in the timeline.
+
+#### Row Height
+
+<a id="row-height"></a>
+
+Several of the rows in the timeline use height as a way to model the percent utilization of resources. This gives the user insight into what is going on even when the timeline is zoomed all the way out.
+
+Nsight Systems calculates the average occupancy for the period of time represented by a particular pixel width of screen. It then uses that average to set the top of the colored section. So, for instance, if 25% of that timeslice the kernel is active, the bar goes 25% of the distance to the top of the row.
+
+In order to make the difference clear, if the percentage of the row height is non-zero, but would be represented by less than one vertical pixel, Nsight Systems displays it as one pixel high. The gray height represents the maximum usage in that time range.
+
+This row height coding is used in the **CPU utilization**, **thread and process occupancy**, **kernel occupancy**, and **memory transfer activity** rows.
+
+#### Row Percentage
+
+<a id="row-percentage"></a>
+
+The percentage shown in front of the stream indicates the proportion of context running time this particular stream takes:
+
+```
+% stream = 100.0 * streamUsage / contextUsage
+```
+
+Where:
+- `streamUsage` = total amount of time this stream is active on GPU
+- `contextUsage` = total amount of time all streams for this context are active on GPU
+
+So "26% Stream 1" means that Stream 1 takes 26% of its context's total running time.
+
+Total running time = sum of durations of all kernels and memory ops that run in this context.
+
+### Timeline Options
+
+<a id="timeline-options"></a>
+
+We strongly recommend using the OS/Desktop defaults for size and color, but if you would like to set them for yourself, they are available using the **Tools > Options** dialog.
+
+The above will change the options globally for this GUI. It's also possible to change some options for a particular open report. There is an **Options...** button near the View Selector.
+
+This button will show a dialog that allows showing/hiding the following:
 
 | Option | Description |
 |---|---|
-| **Auto row height** | Automatically adjusts row height based on content. |
-| **Fixed row height** | Set a specific pixel height for all rows. |
-| **Row percentage** | Show percentage of visible time occupied by events in each row. |
+| **Correlation arrows** | Show/hide arrows linking correlated CPU and GPU events |
+| **Line labels** | Show/hide the line labels column |
+| **CPU occupancy chart** | Show/hide the CPU occupancy visualization |
 
-To configure: Right-click on the timeline header area and select **Row Height** or **Show Percentages**.
-
----
-
-## Timeline Options
-
-The Timeline Options panel provides configuration for the timeline display.
-
-### Display Options
-
-| Option | Description | Default |
-|---|---|---|
-| **Show idle threads** | Display threads with no activity. | Enabled |
-| **Show GPU migrations** | Show GPU context migration events. | Enabled |
-| **Show memory transfers** | Display cudaMemcpy and similar operations. | Enabled |
-| **Merge rows** | Combine similar rows into groups. | Disabled |
-| **NVTX nesting** | Show nested NVTX ranges hierarchically. | Enabled |
-| **Row labels** | Choose between thread name, thread ID, or process name. | Thread name |
-
-### Time Format
-
-| Format | Example | Description |
-|---|---|---|
-| **Absolute** | `12:34:56.789123456` | Wall clock time. |
-| **Relative to trace start** | `1.234 s` | Time from the beginning of the trace. |
-| **Relative to selection** | `0.000 s` | Time from the start of the selected range. |
-| **Ticks** | `1234567890` | Raw timestamp counter value. |
-
-### Color Coding
-
-- API calls are color-coded by category (CUDA Runtime, CUDA Driver, OS Runtime, etc.).
-- GPU kernels use a distinct color palette from CPU operations.
-- NVTX ranges use user-defined colors or default palette.
-- Customize colors in **File > Preferences > Colors**.
+By default, the timeline will be based on **session time**. If you would like to switch to **global time**, click on the small arrow at the top of the leftmost column to reveal the dropdown.
 
 ---
 
 ## Events View
 
-The Events View shows a tabular list of all recorded events with powerful filtering capabilities.
+<a id="events-view"></a>
 
-### Event Columns
+The Events View provides a tabular display of the trace events. The view contents can be searched and sorted.
 
-| Column | Description |
+Double-clicking an item in the Events View automatically focuses the Timeline View on the corresponding timeline item.
+
+API calls, GPU executions, and debug markers that occurred within the boundaries of a debug marker are displayed nested to that debug marker. Multiple levels of nesting are supported.
+
+Events View recognizes these types of debug markers:
+
+| Marker Type | Description |
 |---|---|
-| **Start** | Start timestamp of the event. |
-| **Duration** | Duration of the event. |
-| **PID** | Process ID. |
-| **TID** | Thread ID. |
-| **API/Event Name** | Name of the API call or event. |
-| **Result** | Return value of the API call. |
-| **Arguments** | Arguments passed to the API. |
-| **Correlation ID** | Links related CPU and GPU events. |
+| **NVTX** | NVIDIA Tools Extension markers |
+| **Vulkan** | `VK_EXT_debug_marker` markers, `VK_EXT_debug_utils` labels |
+| **PIX** | PIX events and markers |
+| **OpenGL** | `KHR_debug` markers |
 
-### Debug Markers
+You can copy and paste from the Events View by highlighting rows, using Shift or Ctrl to enable multi-select. Right clicking on the selection will give you a copy option.
 
-Nsight Systems supports several debug marker APIs for annotating traces:
-
-#### NVTX (NVIDIA Tools Extension)
-
-- NVTX ranges appear as labeled regions in the timeline.
-- Support for nested ranges, categories, and custom colors.
-- Domain support for isolating ranges from different libraries.
-- Payload support for attaching key-value data.
-
-#### Vulkan Debug Markers
-
-- `VK_EXT_debug_marker` and `VK_EXT_debug_utils` extensions.
-- `vkCmdBeginDebugUtilsLabelEXT` / `vkCmdEndDebugUtilsLabelEXT`
-- `vkSetDebugUtilsObjectNameEXT`
-- Appear in the Vulkan command buffer rows of the timeline.
-
-#### PIX Debug Markers
-
-- Windows-only, used with Direct3D applications.
-- `PIXBeginEvent` / `PIXEndEvent` / `PIXSetMarker`
-- Displayed in D3D12 command list rows.
-
-#### OpenGL KHR_debug
-
-- `GL_KHR_debug` extension markers.
-- `glPushDebugGroupKHR` / `glPopDebugGroupKHR`
-- `glObjectLabelKHR`
-- Shown in OpenGL API trace rows.
-
-### Filtering Events
-
-- Filter by event type (Kernel, Memcpy, API, etc.).
-- Filter by duration (minimum/maximum).
-- Filter by name pattern (regex support).
-- Filter by PID/TID.
-- Filter by correlation ID.
+Pasting into text gives you a tab-separated view. Pasting into a spreadsheet properly copies into rows and columns.
 
 ---
 
 ## Function Table Modes
 
-The Function Table provides aggregated statistics about CPU function execution from sampling data.
+<a id="function-table-modes"></a>
+
+The function table can work in three modes:
 
 ### Top-Down View
 
-The Top-Down view shows the call hierarchy starting from the outermost functions (e.g., `main`) and drilling down into called functions.
+<a id="top-down-view"></a>
 
-```
-main
-├── train_loop
-│   ├── forward_pass
-│   │   ├── conv2d (Self: 15%, Total: 45%)
-│   │   └── relu (Self: 5%, Total: 10%)
-│   └── backward_pass
-│       ├── conv2d_backward (Self: 20%, Total: 25%)
-│       └── ...
-└── data_loader
-    └── read_batch (Self: 10%, Total: 10%)
-```
+In this mode, expanding top-level functions provides information about the callee functions. One of the top-level functions is typically the `main` function of your application, or another entry point defined by the runtime libraries.
 
 **Columns:**
 
 | Column | Description |
 |---|---|
-| **Total Samples** | Number of samples where this function was anywhere in the call stack. |
-| **Total %** | Percentage of all samples where this function appeared in the call stack. |
-| **Self Samples** | Number of samples where this function was at the top of the call stack (the currently executing function). |
-| **Self %** | Percentage of all samples where this function was the leaf function. |
+| **Self** | The relative amount of time spent executing instructions of this particular function |
+| **Total** | How much time has been spent executing this function, including all other functions called from this one. Total values of sibling rows sum up to the Total value of the parent row, or 100% for the top-level rows |
 
 ### Bottom-Up View
 
-The Bottom-Up view starts from the leaf functions (most frequently sampled) and shows their callers.
+<a id="bottom-up-view"></a>
 
-```
-conv2d_kernel (Self: 25%)
-├── conv2d (called from: forward_pass)
-│   └── train_loop
-│       └── main
-├── im2col (called from: conv2d)
-│   └── ...
-└── [Unknown] (called from inlined code)
-
-gemm_kernel (Self: 18%)
-├── matmul
-│   ├── linear
-│   └── ...
-```
+This is a reverse of the Top-Down view. On the top level, there are functions directly hit by the sampling profiler. To explore all possible call chains leading to these functions, you need to expand the subtrees of the top-level functions.
 
 **Columns:**
 
 | Column | Description |
 |---|---|
-| **Self Samples** | Number of samples at this exact function. |
-| **Self %** | Percentage of samples at this exact function. |
-| **Total Samples** | Total samples in this function and all its callees. |
-| **Total %** | Percentage of total samples. |
+| **Self (top-level)** | Shows how much time has been spent directly in this function. Self times of all top-level rows add up to 100% |
+| **Self (children)** | Breaks down the value of the parent row based on the various call chains leading to that function. Self times of sibling rows add up to the value of the parent row |
 
 ### Flat View
 
-The Flat view shows all functions sorted by their self-sample count without call hierarchy.
+<a id="flat-view"></a>
 
-| Function | Module | Self Samples | Self % | Total Samples | Total % |
-|---|---|---|---|---|---|
-| `conv2d_kernel` | libcudnn.so | 12500 | 25.0% | 12500 | 25.0% |
-| `gemm_kernel` | libcublas.so | 9000 | 18.0% | 9000 | 18.0% |
-| `memcpy` | libc.so | 5000 | 10.0% | 5000 | 10.0% |
-| `[Unknown]` | N/A | 3500 | 7.0% | 3500 | 7.0% |
-| `elementwise_kernel` | libtorch_cuda.so | 2800 | 5.6% | 2800 | 5.6% |
+This view enumerates all functions ever observed by the profiler, even if they have never been directly hit, but just appeared somewhere on the call stack. This view typically provides a high-level overview of which parts of the code are CPU-intensive.
 
-**Column Explanations:**
+**Column:**
 
-- **Self**: Time spent directly in this function (not including called functions). This identifies the actual hotspots.
-- **Total**: Time spent in this function and all functions it called. This identifies which code paths are expensive.
-- **Flat**: In flat view, Self and Total are the same since there is no hierarchy.
+| Column | Description |
+|---|---|
+| **Flat** | Shows how much time this function has been anywhere on the call stack. Values in this column do not add up or have other significant relationships |
+
+### When to Use Each View
+
+Each of the views helps understand particular performance issues:
+
+| Scenario | Recommended View |
+|---|---|
+| Finding specific bottleneck functions that can be optimized | **Bottom-Up** view -- examine the top few functions and expand them to understand contexts |
+| Navigating the call tree, searching for algorithms that consume unexpectedly large CPU time | **Top-Down** view |
+| Quickly assessing which high-level parts consume significant CPU time | **Flat** view |
+
+> **Note:** If low-impact functions have been filtered out, values may not add up correctly to 100%, or to the value of the parent row. This filtering can be disabled.
+
+### Filtering and the Symbols Table
+
+Contents of the symbols table is tightly related to the timeline. Users can apply and modify filters on the timeline, and they will affect which information is displayed in the symbols table:
+
+- **Per-thread filtering** -- Each thread that has sampling information associated with it has a checkbox next to it on the timeline. Only threads with selected checkboxes are represented in the symbols table.
+- **Time filtering** -- A time filter can be set up on the timeline by pressing the left mouse button, dragging over a region of interest on the timeline, and then choosing **Filter by selection** in the dropdown menu. In this case, only sampling information collected during the selected time range will be used to build the symbols table.
+
+> **Note:** If too little sampling data is being used to build the symbols table (for example, when the sampling rate is configured to be low, and a short period of time is used for time-based filtering), the numbers in the symbols table might not be representative or accurate in some cases.
+
+### Function Table Notes
+
+<a id="function-table-notes"></a>
+
+#### Last Branch Records vs. Frame Pointers
+
+Two of the mechanisms available for collecting backtraces are Intel Last Branch Records (LBRs) and frame pointers.
+
+**LBRs** are used to trace every branch instruction via a limited set of hardware registers. They can be configured to generate backtraces but have finite depth based on the CPU's microarchitecture. LBRs are effectively free to collect but may not be as deep as you need.
+
+**Frame pointers** only work when a binary is compiled with the `-fno-omit-frame-pointer` compiler switch. To determine if frame pointers are enabled on an x86_64 binary running on Linux, dump a binary's assembly code:
+
+```bash
+objdump -d [binary_file]
+```
+
+Look for this pattern at the beginning of all functions:
+
+```asm
+push   %rbp
+mov    %rsp,%rbp
+```
+
+When frame pointers are available in a binary, full stack traces will be captured. Note that libraries that frequently used by applications and ship with the operating system, such as libc, are generated in release mode and therefore do not include frame pointers.
+
+#### Kernel Samples
+
+When an IP sample is captured while a kernel mode (i.e. operating system) function is executing, the sample will be shown with an address that starts with `0xffffffff` and map to the `[kernel.kallsyms]` module.
+
+#### [vdso] Entries
+
+Samples may be collected while a CPU is executing functions in the Virtual Dynamic Shared Object. In this case, the sample will be resolved (i.e., mapped) to the `[vdso]` module.
+
+The vDSO ("virtual dynamic shared object") is a small shared library that the kernel automatically maps into the address space of all user-space applications. Applications usually do not need to concern themselves with these details as the vDSO is most commonly called by the C library.
+
+#### [Unknown] Entries
+
+When an address can not be resolved (i.e., mapped to a module), its address within the process's address space will be shown and its module will be marked as `[Unknown]`.
 
 ---
 
-## Backtraces Explanation
+## Filter Dialog
 
-Backtraces (call stacks) are collected at each sampling point to show the full execution path.
+<a id="filter-dialog"></a>
 
-### LBR (Last Branch Record) vs Frame Pointers
+The Filter dialog provides options for managing the display of sampling data:
 
-| Method | Description | Pros | Cons |
-|---|---|---|---|
-| **LBR** | Intel hardware feature that records recent branch targets. Provides limited-depth backtraces without frame pointers. | No recompilation needed; works with optimized code. | Limited depth (typically 4-32 frames); Intel only. |
-| **Frame Pointers** | Traditional backtrace method using the frame pointer register (`rbp` on x86-64). | Unlimited depth; works on all architectures. | Requires `-fno-omit-frame-pointer` compilation flag; not available with heavy optimization. |
-| **DWARF** | Uses DWARF debug info to unwind stacks without frame pointers. | Works with optimized code; unlimited depth. | Slower to collect; requires debug info (`-g`). |
-| **ORC** | Linux kernel-specific unwinder (ORC unwinder). | Used for kernel stack traces. | Kernel only. |
-
-### Kernel Samples
-
-Kernel-space samples appear with the `[kernel]` prefix or module name:
-
-- `[kernel].schedule` - Scheduler function
-- `[kernel].__schedule` - Internal scheduler
-- `[kernel].do_page_fault` - Page fault handler
-- `[kernel].copy_user_enhanced_fast_string` - Memory copy in kernel
-
-### [vdso] Entries
-
-The `[vdso]` (Virtual Dynamic Shared Object) is a kernel-provided shared library mapped into every process:
-
-- Contains fast-path implementations of system calls like `clock_gettime`, `gettimeofday`.
-- Samples in `[vdso]` indicate time spent in these frequently-called functions.
-- Not a performance concern unless excessive.
-
-### [Unknown] Entries
-
-`[Unknown]` appears when the backtrace cannot be resolved to a function name:
-
-| Cause | Solution |
+| Option | Description |
 |---|---|
-| Missing symbol files | Install debug packages or add symbol paths. |
-| Stripped binaries | Use unstripped versions during profiling. |
-| JIT-compiled code | Register JIT debug info with the runtime. |
-| Inlined functions | Compile with `-g` to get inline information. |
-| Dynamic code generation | Use runtime-specific symbol registration (e.g., `__jit_debug_register_code`). |
+| **Collapse unresolved lines** | Useful if some of the binary code does not have symbols. In this case, subtrees that consist of only unresolved symbols get collapsed in the Top-Down view, since they provide very little useful information. |
+| **Hide functions with CPU usage below X%** | Useful for large applications, where the sampling profiler hits lots of functions just a few times. To filter out the "long tail," which is typically not important for CPU performance bottleneck analysis, this checkbox should be selected. |
+
+---
+
+## Example: Using Timeline with Function Table
+
+<a id="timeline-function-table-example"></a>
+
+Here is an example walkthrough of using the timeline and function table with Instruction Pointer (IP)/backtrace Sampling Data.
+
+### Timeline
+
+When a collection result is opened in the Nsight Systems GUI, there are multiple ways to view the CPU profiling data:
+
+In the timeline, **yellow-orange marks** can be found under each thread's timeline that indicate the moment an IP / backtrace sample was collected on that thread. Hovering the cursor over a mark will cause a tooltip to display the backtrace for that sample.
+
+### Sampling Summary
+
+Below the Timeline is a drop-down list with multiple options including Events View, Top-Down View, Bottom-Up View, and Flat View. All four of these views can be used to view CPU IP / backtrace sampling data.
+
+If the Bottom-Up View is selected, the sampling summary is shown in the bottom half of the Timeline View screen. The summary includes the phrase "65,022 samples are used," indicating how many samples are summarized. By default, functions that were found in less than 0.5% of the samples are not shown. Use the filter button to modify that setting.
+
+### Filtering
+
+When sampling data is filtered, the Sampling Summary will summarize the selected samples. Samples can be filtered on an OS thread basis, on a time basis, or both.
+
+Deselecting a checkbox next to a thread removes its samples from the sampling summary. Dragging the cursor over the timeline and selecting "Filter and Zoom In" chooses the samples during the time selected. The sample summary includes the phrase "0.35% (225 samples) of data is shown due to applied filters."
+
+Click on the down arrow next to a thread and choose **Show Only This Thread** to deselect all threads except that thread.
+
+If the Events View is selected, right-click on a specific thread and choose **Show in Events View**. The samples collected while that thread executed will be shown in the Events View. Double-clicking on a specific sample in the Events view causes the timeline to show when that sample was collected.
+
+---
+
+## Backtraces
+
+<a id="backtraces"></a>
+
+To understand the code path used to get to a specific function shown in the sampling summary, right-click on a function and select **Expand**.
+
+The backtrace shows the full call chain leading to the function. The `[Max depth]` string marks the end of the collected backtrace.
+
+By default, backtraces with less than 0.5% of the total backtraces are hidden. This behavior can make the percentage results hard to understand. If all backtraces are shown (i.e., the filter is disabled), the results look very different and the numbers add up as expected. To disable the filter, click on the **Filter...** button and uncheck the **Hide functions with CPU usage below X%** checkbox.
+
+When backtraces are collected, the whole sample (IP and backtrace) is handled as a single sample. If two samples have the exact same IP and backtrace, they are summed in the final results. If two samples have the same IP but a different backtrace, they will be shown as having the same leaf (i.e., IP) but a different backtrace.
+
+When backtraces end, they are marked with the `[Max depth]` string (unless the backtrace can be traced back to its origin; e.g., `__libc_start_main`) or the backtrace breaks because an IP cannot be resolved.
 
 ---
 
 ## Multi-Report Timeline Views
 
-Nsight Systems supports viewing multiple reports simultaneously for comparison.
+<a id="multi-report-views"></a>
 
-### Separate Panes Mode
+### Viewing Multiple Reports in Separate Panes
 
-- Each report is displayed in its own timeline pane, stacked vertically.
-- Scrolling and zooming operate independently per pane.
-- Useful for comparing different runs of the same application.
+<a id="separate-panes"></a>
 
-### Same Timeline Mode
+You have the option of looking at two or more Nsight Systems results files in separate panes. To do so:
 
-- Multiple reports are overlaid on the same timeline axis.
-- Events from different reports are shown in different colors or row groups.
-- Useful for comparing A/B test results.
+1. Open each report in a tab.
+2. Grab one of the tabs and undock it.
+3. When you hover with the cursor in the middle of the GUI, you will see options for where to dock the pane.
+4. Multiple reports can be docked in the window.
+
+### Viewing Multiple Reports in the Same Timeline
+
+<a id="same-timeline"></a>
+
+You can open several reports in a single timeline. This could be done using one of these methods:
+
+- **File > Open...** in the main menu, and select several report files.
+- **File > New multi-report view** in the main menu, add report files that you want to open in the Multi-report view, and click the **Apply** button.
+
+Multi-report view contains a simple editor that allows you to add/remove report files and will load them all on a single timeline after applying that set of reports.
+
+When reports are loaded, you can use the View Selector to open the Multi-report view again, change the set of reports, and click on **Apply** button to reload the timeline with the new set of reports.
+
+The selected set of reports can be saved as a Multi-report view document and could be opened later to load the same set again.
 
 ### Time Synchronization
 
-| Mode | Description |
+<a id="time-sync"></a>
+
+When multiple reports are loaded into a single timeline, timestamps between them need to be adjusted, such that events that happened at the same time appear to be aligned.
+
+#### UTC-Based Synchronization (Default)
+
+Nsight Systems can automatically adjust timestamps based on UTC time recorded around the collection start time. This method is used by default when other more precise methods are not available.
+
+This time can be seen as **UTC time at t=0** in the Analysis Summary page of the report file. Refer to your OS documentation to learn how to sync the software clock using the Network Time Protocol (NTP).
+
+**NTP-based time synchronization is not very precise**, with the typical errors on the scale of one to tens of milliseconds.
+
+#### TSC-Based Synchronization
+
+Reports collected on the same physical machine can use synchronization based on **Timestamp Counter (TSC)** values. These are platform-specific counters, typically accessed in user space applications using the RDTSC instruction on x86_64 architecture, or by reading the CNTVCT register on Arm64.
+
+Their values converted to nanoseconds can be seen as **TSC value at t=0** in the Analysis Summary page of the report file. Reports synchronized using TSC values can be aligned with **nanoseconds-level precision**.
+
+TSC-based time synchronization is activated automatically, when Nsight Systems detects that reports come from same target and that the same TSC value corresponds to very close UTC times. Targets are considered to be the same when either:
+
+- Explicitly set environment variables `NSYS_HW_ID` are the same for both reports, OR
+- Target hostnames are the same and `NSYS_HW_ID` is not set for either target
+
+The difference between UTC and TSC time offsets must be below **1 second** to choose TSC-based time synchronization.
+
+To find out which synchronization method was used, navigate to the Analysis Summary tab of an added report and check the **Report alignment source** property of a target. Note that the first report will not have this parameter.
+
+> **Important:** When loading multiple reports into a single timeline, it is always advisable to first check that time synchronization looks correct, by zooming into synchronization or communication events that are expected to be aligned.
+
+### Timeline Hierarchy
+
+<a id="timeline-hierarchy"></a>
+
+When reports are added to the same timeline Nsight Systems will automatically line them up by timestamps. If you want Nsight Systems to also recognize matching process or hardware information, you will need to set environment variables `NSYS_SYSTEM_ID` and `NSYS_HW_ID` at the time of report collection.
+
+When loading a pair of report files into the same timeline, they will be merged in one of the following configurations:
+
+| Configuration | Description |
 |---|---|
-| **Synchronized** | Zooming and scrolling in one pane mirrors in all others. |
-| **Independent** | Each pane has independent zoom and scroll. |
-| **Aligned by start** | Aligns all reports so their start times coincide. |
-| **Aligned by event** | Aligns reports using a specific event type (e.g., first kernel launch). |
+| **Different hardware** | Used when reports are coming from different physical machines, and no hardware resources are shared. This mode is used when neither `NSYS_HW_ID` or `NSYS_SYSTEM_ID` is set and target hostnames are different or absent. Can be additionally signalled by specifying different `NSYS_HW_ID` values. |
+| **Different systems, same hardware** | Used when reports are collected on different virtual machines (VMs) or containers on the same physical machine. To activate this mode, specify the same value of `NSYS_HW_ID` when collecting the reports. |
+| **Same system** | Used when reports are collected within the same operating system (or container) environment. In this mode a process identifier (PID) 100 will refer to the same process in both reports. To manually activate this mode, specify the same value of `NSYS_SYSTEM_ID` when collecting the reports. This mode is automatically selected when target hostnames are the same and neither `NSYS_HW_ID` or `NSYS_SYSTEM_ID` is provided. |
 
-### Opening Multiple Reports
+### Example: MPI
 
-1. Open the first report normally.
-2. Drag and drop additional `.nsys-rep` files onto the GUI.
-3. Select **View > Multi-Report > Tile Horizontally/Vertically**.
-4. Use the time sync controls in the toolbar.
+<a id="mpi-example"></a>
 
-### Use Cases
+A typical scenario is when a computing job is run using one of the MPI implementations. Each instance of the app can be profiled separately, resulting in multiple report files.
 
-- **Before/after comparison**: Compare performance before and after a code change.
-- **Scaling analysis**: Compare runs with different numbers of GPUs or threads.
-- **Configuration comparison**: Compare different optimization flags or parameters.
-- **Regression testing**: Compare current results against a known baseline.
+```bash
+# Run MPI job without the profiler:
+mpirun <mpirun-options> ./myApp
+
+# Run MPI job and profile each instance of the application:
+mpirun <mpirun-options> nsys profile -o report-%p <nsys-options> ./myApp
+```
+
+When each MPI rank runs on a different node, the command above works fine, since the default pairing mode (different hardware) will be used.
+
+When all MPI ranks run on localhost only, use this command (value "A" was chosen arbitrarily, it can be any non-empty string):
+
+```bash
+NSYS_SYSTEM_ID=A mpirun <mpirun-options> nsys profile -o report-%p <nsys-options> ./myApp
+```
+
+For convenience, the MPI rank can be encoded into the report filename:
+
+- **Open MPI**: Use `OMPI_COMM_WORLD_RANK` environment variable
+
+```bash
+mpirun <mpirun-options> nsys profile -o report-%q{OMPI_COMM_WORLD_RANK} <nsys-options> ./myApp
+```
+
+- **MPICH-based implementations**: Set the environment variable `PMI_RANK`
+- **Slurm (srun)**: Provides the global MPI rank in `SLURM_PROCID`
+
+### Limitations on Syncing Multiple Reports in Timeline
+
+<a id="multi-report-limitations"></a>
+
+- Only report files collected with Nsight Systems version **2021.3** and newer are fully supported.
+- Sequential reports collected in a single CLI profiling session cannot be loaded into a single timeline yet.
 
 ---
 
-## Flame Graph Generation
+## Add-on Graphs - Flame Graph
 
-Nsight Systems can generate flame graphs from CPU sampling data for visual hotspot analysis.
+<a id="flame-graph"></a>
 
-### Creating a Flame Graph
+The generation of Flame Graphs from Nsight Systems reports is not a built-in feature, but it is possible to create such graphs from Nsight Systems reports with the script `stackcollapse_nsys.py` located at `<nsys-install-dir>/<host-folder>/Scripts/Flamegraph/`. There is also a `README.md` file at that location with additional usage details.
 
-1. Open a report with CPU sampling data.
-2. Navigate to the **Function Table** view.
-3. Click the **Flame Graph** button in the toolbar.
-4. Alternatively, right-click on the Function Table and select **Show Flame Graph**.
+### Requirements
 
-### Flame Graph Features
+- `flamegraph.pl` from Brendan Gregg's FlameGraph GitHub repository
+- Perl
 
-| Feature | Description |
-|---|---|
-| **Interactive** | Click on a frame to zoom in; right-click to zoom out. |
-| **Search** | Type a function name to highlight matching frames. |
-| **Color coding** | Frames are colored by module or category. |
-| **Tooltips** | Hover over a frame to see function name, sample count, and percentage. |
-| **Call path** | Each stack level shows the cumulative path from the root. |
+### Usage
 
-### Flame Graph Interpretation
-
-- **Width**: Represents the total number of samples (time) for that function and its callees.
-- **Height**: Represents the stack depth.
-- **Flat top**: A frame with no children indicates a leaf function (actual execution point).
-- **Wide frames**: Functions occupying a large portion of the graph are performance hotspots.
-
-### Exporting Flame Graphs
+Generating flamegraph from Nsight Systems report file on **Linux**:
 
 ```bash
-# Export flame graph data from CLI
-nsys export -t sqlite -o report.sqlite report.nsys-rep
-
-# Use external tools for advanced flame graph visualization
-# e.g., FlameGraph tools by Brendan Gregg
-nsys stats --report function-summary report.nsys-rep
+python3 stackcollapse_nsys.py report.nsys-rep | ./flamegraph.pl > result_flamegraph.svg
 ```
 
-### Flame Graph vs Function Table
+Generating flamegraph from Nsight Systems report file on **Windows**:
 
-| Aspect | Flame Graph | Function Table |
-|---|---|---|
-| **Visualization** | Graphical, intuitive | Tabular, precise |
-| **Navigation** | Click to zoom | Expand/collapse rows |
-| **Search** | Visual highlighting | Text filtering |
-| **Precision** | Approximate widths | Exact sample counts |
-| **Use case** | Quick overview, presentations | Detailed analysis, scripting |
+```powershell
+PowerShell -Command "python stackcollapse_nsys.py report.nsys-rep | perl flamegraph.pl > result_flamegraph.svg"
+```
+
+The script exports the report to SQLite, queries the CPU samples and passes them as input to `flamegraph.pl`.
+
+### Parameters
+
+| Short | Long | Default | Description |
+|---|---|---|---|
+| `--nsys` | - | Current Nsight Systems CLI installation location | Path to the Nsight Systems CLI directory |
+| `-o` | `--out` | Output is written to stdout | Path to a result file containing data suitable for `flamegraph.pl` |
+| - | `--full_function_names` | `False` | Use full function names with return type, arguments and expanded templates, if available |
+
+By default, the script tries to shorten function definitions (eliminating return type, arguments and templates). In some complex cases shortening may fail and return a full function definition. To disable shortening, define the `--full_function_names=False` argument.
+
+### Example
+
+Here is an example of a Flame Graph generated from an Nsight Systems report. The program was a debug build of GROMACS, running on two ranks, each running two OpenMP threads.
 
 ---
 
@@ -772,25 +938,13 @@ nsys stats --report function-summary report.nsys-rep
 | Shortcut | Action |
 |---|---|
 | `Ctrl+O` | Open report |
-| `Ctrl+S` | Save report |
 | `Ctrl+W` | Close current tab |
-| `Ctrl+Z` | Undo |
-| `Ctrl+Home` | Reset zoom |
+| `Ctrl+Home` | Reset zoom to full trace |
 | `Ctrl+G` | Go to time |
 | `Ctrl+F` | Find event |
 | `Ctrl+Plus` | Zoom in |
 | `Ctrl+Minus` | Zoom out |
 | `Ctrl+Shift+Z` | Zoom to selection |
-| `Space` | Play/Pause (for animated replay) |
 | `Tab` | Switch between views |
-| `F5` | Refresh current view |
-| `F11` | Toggle fullscreen |
 | `Escape` | Cancel current selection |
-
----
-
-## See Also
-
-- [CLI Reference](01-cli-usage.md)
-- [Export Formats and SQLite Schema](11-export-sqlite-schema.md)
-- [Release Notes and Troubleshooting](12-release-notes-troubleshooting.md)
+| Double-click event | Focus timeline on event / highlight in Events View |

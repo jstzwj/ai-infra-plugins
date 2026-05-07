@@ -1,1020 +1,718 @@
-# Chapter 2: CLI Command Reference
+# NVIDIA Nsight Systems -- CLI Command Reference
 
-> NVIDIA Nsight Systems -- Comprehensive Reference Manual
+This document provides a comprehensive reference for all Nsight Systems CLI commands, options, and usage examples.
+
+## 1. CLI Syntax Forms
+
+The Nsight Systems command lines can have one of two forms:
+
+```bash
+nsys [global_option]
+```
+
+or
+
+```bash
+nsys [command_switch][optional command_switch_options][application] [optional application_options]
+```
+
+All command line options are case-sensitive. For command switch options:
+- **Short options**: parameters follow the switch after a space (e.g., `-s process-tree`)
+- **Long options**: the switch is followed by an equal sign and then the parameter(s) (e.g., `--sample=process-tree`)
+
+For this version of Nsight Systems, if you launch a process from the command line to begin analysis, the launched process will be terminated when collection is complete, including runs with `--duration` set, unless the user specifies the `--kill none` option. The exception is that if the user uses NVTX, cudaProfilerStart/Stop, or hotkeys to control the duration, the application will continue unless `--kill` is set.
+
+The Nsight Systems CLI supports concurrent analysis by using sessions. Each Nsight Systems session is defined by a sequence of CLI commands that define one or more collections (e.g., when and what data is collected). A session begins with either a start, launch, or profile command. A session ends with a shutdown command, when a profile command terminates, or, if requested, when all the process tree(s) launched in the session exit. Multiple sessions can run concurrently on the same system.
 
 ---
 
-## Table of Contents
+## 2. CLI Global Options
 
-- [Global Options](#global-options)
-- [Command Switches Overview](#command-switches-overview)
-- [profile](#profile)
-  - [Profile Options (A-E)](#profile-options-a-e)
-  - [Profile Options (F-M)](#profile-options-f-m)
-  - [Profile Options (N-S)](#profile-options-n-s)
-  - [Profile Options (T-Z)](#profile-options-t-z)
-- [analyze](#analyze)
-- [cancel](#cancel)
-- [export](#export)
-- [launch](#launch)
-- [nvprof](#nvprof)
-- [recipe](#recipe)
-- [sessions](#sessions)
-- [shutdown](#shutdown)
-- [start](#start)
-- [stats](#stats)
-- [status](#status)
-- [stop](#stop)
-- [Example Single Command Lines](#example-single-command-lines)
-- [Example Interactive CLI Sequences](#example-interactive-cli-sequences)
-- [Example Stats Command Sequences](#example-stats-command-sequences)
+| Short | Long | Description |
+|-------|------|-------------|
+| `-h` | `--help` | Help message providing information about available command switches and their options. |
+| `-v` | `--version` | Output Nsight Systems CLI version information. |
 
 ---
 
-## Global Options
+## 3. CLI Command Switches
 
-These options apply to all commands.
+The Nsight Systems command line interface can be used in two modes. You may launch your application and begin analysis with options specified to the `nsys` profile command. Alternatively, you can control the launch of an application and data collection using interactive CLI commands.
 
-| Option | Description |
-|--------|-------------|
-| `-h`, `--help` | Show help message and exit. Can be combined with a command name for command-specific help (e.g., `nsys profile -h`). |
-| `-v`, `--version` | Print the Nsight Systems CLI version and exit. |
-
-```bash
-# Show global help
-nsys --help
-
-# Show version
-nsys --version
-
-# Show command-specific help
-nsys profile --help
-nsys stats --help
-```
-
----
-
-## Command Switches Overview
-
-| Command | Description | Interactive Mode |
-|---------|-------------|:----------------:|
-| `profile` | Profile an application by launching it under Nsight Systems | No |
-| `analyze` | Analyze an existing report file | No |
-| `cancel` | Cancel the active trace session (interactive mode) | Yes |
-| `export` | Export report data to various formats | No |
-| `launch` | Launch the GUI with an optional report file | No |
-| `nvprof` | Legacy nvprof compatibility mode | No |
-| `recipe` | Run a predefined analysis recipe on a report | No |
-| `sessions` | List active trace sessions (interactive mode) | Yes |
-| `shutdown` | Shut down the Nsight Systems daemon | Yes |
-| `start` | Start a new trace session (interactive mode) | Yes |
-| `stats` | Generate statistical reports from a trace file | No |
-| `status` | Display the status of the Nsight Systems daemon | Yes |
-| `stop` | Stop the active trace session (interactive mode) | Yes |
+| Command | Description |
+|---------|-------------|
+| `analyze` | Post process existing Nsight Systems result, either in .nsys-rep or SQLite format, to generate expert systems report. |
+| `cancel` | Cancels an existing collection started in interactive mode. All data already collected in the current collection is discarded. |
+| `export` | Generates an export file from an existing .nsys-rep file. For more information about the exported formats see the /documentation/nsys-exporter directory in your Nsight Systems installation directory. |
+| `launch` | In interactive mode, launches an application in an environment that supports the requested options. The launch command can be executed before or after a start command. |
+| `nvprof` | Special option to help with transition from legacy NVIDIA nvprof tool. Calling `nsys nvprof [options]` will provide the best available translation of `nvprof [options]`. See Migrating from NVIDIA nvprof topic for details. No additional functionality of nsys will be available when using this option. |
+| `profile` | A fully formed profiling description requiring and accepting no further input. The command switch options used determine when the collection starts, stops, what collectors are used, what processes are monitored, etc. |
+| `recipe` | Post process multiple existing Nsight Systems results to generate statistical information and create various plots. See the Multi-Report Analysis topic for details. |
+| `sessions` | Gives information about all sessions running on the system. |
+| `shutdown` | Disconnects the CLI process from the launched application and forces the CLI process to exit. If a collection is pending or active, it is canceled. |
+| `start` | Starts a collection in interactive mode. The start command can be executed before or after a launch command. |
+| `stats` | Post process existing Nsight Systems result, either in .nsys-rep or SQLite format, to generate statistical information. |
+| `status` | Reports on the status of a CLI-based collection or the suitability of the profiling environment. |
+| `stop` | Stops a collection that was started in interactive mode. When executed, all active collections stop, the CLI process terminates but the application continues running. |
 
 ---
 
-## profile
+## 4. CLI Profile Command Switch Options
 
-The `profile` command traces the target application and generates a report file. This is the most commonly used command.
+After choosing the profile command switch, the following options are available.
 
-### Syntax
-
-```bash
-nsys profile [options] [--] <application> [application-args]
-```
-
-### Profile Options (A-E)
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--accelerator-trace` | `=on\|off` | `off` | Enable or disable accelerator tracing. |
-| `--accelerator-wattson` | `=on\|off` | `off` | Enable Wattson GPU power analysis and estimation. |
-| `--android` | `=on\|off` | `auto` | Enable Android target profiling. |
-| `--android-activity` | `=<string>` | (none) | Launch the specified Android activity for profiling. |
-| `--android-attach` | `=<pid>` | (none) | Attach to a running Android process. |
-| `--android-launch-args` | `=<string>` | (none) | Additional arguments for the Android activity launch. |
-| `--android-package` | `=<string>` | (none) | Android package name to profile. |
-| `--capture-range` | `=none\|cudaProfilerApi\|nvtx\|nvtx-and-cuda-profiler-api` | `none` | Only capture data when the specified profiler API is active. `cudaProfilerApi` requires `cudaProfilerStart/Stop`, `nvtx` uses `NVTX_RANGE_PUSH/POP` with `nsys` domain. |
-| `--capture-range-end` | `=none\|cudaProfilerApi\|nvtx\|stop-on-last-exit` | `none` | Stop capture at the specified boundary. |
-| `--continue-on-exception` | `=on\|off` | `off` | Continue profiling even if an exception occurs in the target. |
-| `--cpuctxsw` | `=none\|process\|thread` | `none` | Trace CPU context switches. `process` traces per-process switches; `thread` traces per-thread switches. Requires root on some systems. |
-| `--cuda-flush-interval` | `=<milliseconds>` | `10000` | Interval (ms) at which CUDA trace buffers are flushed. Lower values reduce buffer overflow risk but may increase overhead. |
-| `--cuda-memory-usage` | `=true\|false` | `false` | Track CUDA memory allocation and deallocation events. Records `cudaMalloc`, `cudaFree`, etc. |
-| `--cuda-um-cpu-page-faults` | `=true\|false` | `false` | Trace Unified Memory CPU page faults. Requires root on Linux. |
-| `--cuda-um-gpu-page-faults` | `=true\|false` | `false` | Trace Unified Memory GPU page faults. |
-| `--cudabacktrace` | `=true\|false` | `false` | Capture CUDA API call backtraces. Records the call stack leading to each CUDA API call. Increases overhead significantly. |
-| `--cudagraph` | `=true\|false` | `true` | Trace CUDA Graph capture, instantiation, and execution events. |
-| `--cudagrpcpu` | `=true\|false` | `false` | Trace CUDA Graph-related CPU-side events. |
-| `--cudaProfilingApi` | `=auto\|cdp1\|cdp2` | `auto` | CUDA Dynamic Parallelism profiling mode. `cdp1` for CUDA DP v1, `cdp2` for CUDA DP v2. |
-| `--delay` | `=<seconds>` | `0` | Delay (in seconds) before starting the trace. Useful for skipping initialization phases. |
-| `--duration` | `=<seconds>` | `0` | Duration (in seconds) for the trace. `0` means trace until the application exits. |
-| `--duration-override` | `=<seconds>` | (none) | Override the trace duration without modifying other settings. |
-| `--enable*` | Various | (varies) | A family of options to enable specific tracing features. See individual options. |
-| `--env-var` | `=<KEY=VALUE>` | (none) | Set an environment variable for the target process. Can be specified multiple times. |
-
-### Profile Options (F-M)
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--ftrace` | `=on\|off` | `off` | Enable Linux kernel ftrace (function tracing). Requires root access. |
-| `--ftrace-events` | `=<function1,function2,...>` | (none) | Specify which kernel functions to trace with ftrace. Separate with commas. |
-| `--force-overwrite` | `=true\|false` | `false` | Overwrite existing report file without prompting. |
-| `--gpu-metrics-device` | `=all\|none\|<device_id>` | `none` | Collect GPU hardware metrics. `all` collects from all GPUs, a number targets a specific GPU. |
-| `--gpu-metrics-frequency` | `=<frequency_hz>` | `10000` | Frequency (Hz) at which GPU metrics are sampled. Range: 100-100000. Higher frequencies increase overhead. |
-| `--gpu-temp-memory` | `=true\|false` | `false` | Track GPU memory temperature metrics. |
-| `--gpu-temp-power` | `=true\|false` | `false` | Track GPU power metrics. |
-| `--gpuctxsw` | `=true\|false` | `false` | Trace GPU context switch events. |
-| `--help` | (none) | N/A | Show profile command help and exit. |
-| `--hostname` | `=<hostname>` | `localhost` | Hostname or IP address of the target machine for remote profiling. |
-| `--hot-clock` | `=true\|false` | `false` | Enable hot clock frequency tracking. |
-| `--kill` | `=none\|sigkill\|sigterm\|<signal>` | `none` | Send a signal to the target process when the trace is stopped. `none` lets the application exit naturally. |
-| `--launch-attach` | `=<pid>` | (none) | Attach to an already running process instead of launching a new one. |
-| `--launch-forward` | `=on\|off` | `on` | Forward stdout/stderr from the target process. |
-| `--launch-watchdog` | `=on\|off` | `off` | Enable a watchdog to detect hung target processes. |
-| `--magic-repr` | `=true\|false` | `true` | Enable magic representation for binary data in the trace. |
-| `--malloc-tracking` | `=true\|false` | `false` | Track `malloc`/`free` calls for memory allocation analysis. |
-| `--metrics` | `=<metric_group1,metric_group2,...>` | (none) | Specify which GPU metric groups to collect. Use `nsys stats --report gpu-metrics` to see available groups. |
-| `--module` | `=<module>` | (none) | Specify the CUDA module to trace. |
-
-### Profile Options (N-S)
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--name` | `=<session_name>` | (auto) | Name for the trace session. Used to identify sessions in interactive mode. |
-| `--nic` | `=all\|none\|<device_id>` | `none` | Trace NIC (Network Interface Card) metrics. `all` traces all NICs, a number targets a specific NIC. |
-| `--nic-frequency` | `=<frequency_hz>` | `100` | Frequency (Hz) for NIC metrics sampling. Range: 1-1000. |
-| `--nv-nsight-cli` | (none) | N/A | Internal use. |
-| `--nvprof` | (none) | N/A | Legacy nvprof compatibility mode. |
-| `--nvtx-include` | `=<domain1:range1,domain2:range2,...>` | (none) | Only capture NVTX ranges matching the specified filter. Format: `domain:range_name`. Supports wildcards. |
-| `--nvtx-domain` | `=<domain>` | (none) | Filter NVTX ranges by domain name. |
-| `--output` | `=<filename>` | `report<#>` | Output filename. `%q{ENV_VAR}` inserts environment variable value. `%%` inserts `%`. `%p` inserts PID. `%h` inserts hostname. `##` inserts sequential number. |
-| `--output-fmt` | `=<format>` | (auto from extension) | Force output format. Options: `sqlite` (`.nsys-rep`), `hdf5` (`.h5`), `text` (`.txt`). |
-| `--override` | `=true\|false` | `false` | Override all conflicting settings and force the specified options. |
-| `--pennant` | `=true\|false` | `false` | Enable PENNANT tracing support. |
-| `--power-transition` | `=true\|false` | `false` | Track GPU power state transitions. |
-| `--python-api-tracing` | `=true\|false` | `false` | Trace Python function calls. |
-| `--python-backtrace` | `=true\|false` | `false` | Capture Python backtraces in CPU samples. |
-| `--python-sampling` | `=true\|false` | `false` | Enable Python-specific sampling. |
-| `--qnx-fork-stats` | `=true\|false` | `false` | Track fork statistics on QNX. |
-| `--qnx-name` | `=<name>` | (none) | QNX process name filter. |
-| `--qnx-pid` | `=<pid>` | (none) | QNX process ID filter. |
-| `--qnx-tid` | `=<tid>` | (none) | QNX thread ID filter. |
-| `--report` | `=<report_type>` | (none) | Generate specific report type after profiling. |
-| `--roi-activity` | `=global\|thread\|off` | `global` | How NVTX ROI (Region of Interest) activities are attributed. |
-| `--sample` | `=cpu\|none` | `cpu` | Enable CPU sampling. `cpu` enables instruction-level sampling; `none` disables it. |
-| `--sample-frequency` | `=<frequency>` | `1000` | CPU sampling frequency in Hz. Higher values give more precise data but increase overhead. Range: 1-100000. |
-| `--session` | `=<session_id>` | `new` | Specify a session ID for interactive mode. `new` creates a new session. |
-| `--show-progress` | `=true\|false` | `true` | Display progress information during profiling. |
-| `--sm-clock` | `=true\|false` | `false` | Track SM clock frequency. |
-| `--stats` | `=true\|false` | `false` | Generate a default stats report after profiling. Equivalent to running `nsys stats` after profiling. |
-| `--stop-on-exit` | `=true\|false` | `true` | Stop the trace when the target process exits. |
-| `--stop-on-disconnect` | `=true\|false` | `true` | Stop the trace when the CLI disconnects (interactive mode). |
-| `--switch` | `=on\|off` | `off` | Enable switch tracing (network). |
-
-### Profile Options (T-Z)
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `-t`, `--trace` | `=<trace_features>` | `cuda,nvtx,osrt` | Comma-separated list of features to trace. See trace features table below. |
-| `--trace-fork` | `=true\|false` | `true` | Trace child processes created via `fork()`. |
-| `--trey` | `=true\|false` | `false` | Enable Trey tracing support. |
-| `--use-app-ctx` | `=true\|false` | `false` | Use the application's context for tracing. |
-| `-w`, `--wait` | `=primary\|all` | `primary` | Wait for either the primary or all traced processes to finish before stopping. |
-| `--warmup` | `=<seconds>` | `0` | Warm-up period before tracing begins. Trace data collected during warmup is discarded. |
-| `--xhv-trace` | `=true\|false` | `false` | Enable XHV (Xen Hypervisor) tracing. |
-| `--xhv-trace-events` | `=<events>` | (none) | Specify XHV events to trace. |
-
-### Trace Features (`-t` / `--trace`)
-
-The `-t` option accepts a comma-separated list of the following features:
-
-| Feature | Description | Platform |
-|---------|-------------|----------|
-| `cuda` | CUDA Driver and Runtime API tracing, kernel launches, memory transfers | All |
-| `nvtx` | NVIDIA Tools Extension markers and ranges | All |
-| `osrt` | OS Runtime API (pthreads, semaphores, I/O) | Linux/QNX |
-| `cuda_rt` | CUDA Runtime API only (subset of `cuda`) | All |
-| `cuda_driver` | CUDA Driver API only (subset of `cuda`) | All |
-| `cublas` | cuBLAS library calls | All |
-| `cudnn` | cuDNN library calls | All |
-| `cublaslt` | cuBLASLt library calls | All |
-| `cufft` | cuFFT library calls | All |
-| `curand` | cuRAND library calls | All |
-| `cusolver` | cuSOLVER library calls | All |
-| `cusparse` | cuSPARSE library calls | All |
-| `nvjpeg` | nvJPEG library calls | All |
-| `nvmpi` | NVIDIA MPI library calls | Linux |
-| `nvvideo` | NVIDIA Video codec calls | Linux |
-| `nvmedia` | NvMedia calls | QNX |
-| `opengl` | OpenGL API calls | Linux/Windows |
-| `openglx` | OpenGL extension calls | Linux |
-| `vulkan` | Vulkan API calls | Linux/Windows |
-| `vulkan-loader` | Vulkan loader calls | Linux/Windows |
-| `dx11` | DirectX 11 | Windows |
-| `dx12` | DirectX 12 | Windows |
-| `dx12-d3d` | DirectX 12 D3D calls | Windows |
-| `dx12-residency` | DirectX 12 residency tracking | Windows |
-| `openacc` | OpenACC runtime calls | All |
-| `openmp` | OpenMP runtime events | All |
-| `mpi` | MPI communication events | Linux |
-| `python` | Python function tracing | All |
-| `numpy` | NumPy API tracing | All |
-| `os` | OS-level events (generic) | All |
-| `ftrace` | Linux kernel ftrace (requires root) | Linux |
-| `syscalls` | Linux system call tracing | Linux |
-| `etw` | Event Tracing for Windows | Windows |
-| `wddm` | WDDM (Windows Display Driver Model) tracing | Windows |
-| `xnvctrl` | XNVCTRL (X11 NV Control) tracing | Linux |
-| `nvapi` | NVAPI tracing | Windows |
-| `dxcore` | DXCore tracing | Windows |
-| `dxgi` | DXGI (DirectX Graphics Infrastructure) tracing | Windows |
-| `uvm` | Unified Virtual Memory events | Linux |
-| `cufile` | cuFile (GDS) operations | Linux |
-| `pennant` | PENNANT proxy tracing | Linux |
-| `video` | Video codec tracing | All |
-| `wgl` | WGL (Windows Graphics Library) | Windows |
-| `gdal` | GDAL tracing | Linux |
-
-### Sample Output Filenames
+**Usage:**
 
 ```bash
-# Default naming (auto-increment)
-nsys profile ./my_app
-# Creates: report1.nsys-rep, report2.nsys-rep, ...
-
-# Custom filename
-nsys profile -o my_profile ./my_app
-# Creates: my_profile.nsys-rep
-
-# With PID in filename
-nsys profile -o "profile_%p" ./my_app
-# Creates: profile_12345.nsys-rep
-
-# With hostname
-nsys profile -o "profile_%h" ./my_app
-# Creates: profile_myserver.nsys-rep
-
-# With environment variable
-nsys profile -o "profile_%q{EXPERIMENT_NAME}" ./my_app
-# Creates: profile_baseline.nsys-rep (if EXPERIMENT_NAME=baseline)
-
-# Force overwrite
-nsys profile -o my_profile --force-overwrite=true ./my_app
+nsys [global-options] profile [options] [application] [application-arguments]
 ```
+
+| Short | Long | Parameters | Default | Description |
+|-------|------|------------|---------|-------------|
+| | `--accelerator-trace` | none, tegra-accelerators | none | Collect other accelerators workload trace from the hardware engine units. Available in Nsight Systems Embedded Platforms Edition only. |
+| | `--auto-report-name` | true, false | false | Derive report file name from collected data using details of the profiled graphics application. Format: [Process Name][GPU Name][Window Resolution][Graphics API] Timestamp .nsys-rep. If true, automatically generate report file names. |
+| `-b` | `--backtrace` | auto, fp, lbr, dwarf, none | | Select the backtrace method to use while sampling. lbr uses Intel Last Branch Record registers (Haswell+). fp is frame pointer. dwarf uses DWARF CFI. Setting to none reduces collection overhead. |
+| `-c` | `--capture-range` | none, cudaProfilerApi, hotkey, nvtx | none | When --capture-range is used, profiling will start only when an appropriate start API or hotkey is invoked. If set to none, start/stop API calls and hotkeys will be ignored. Hotkey works for graphic applications only. |
+| | `--capture-range-end` | none, stop, stop-shutdown, repeat[:N], repeat-shutdown:N | stop-shutdown | Behavior when a capture range ends. none = ignore end. stop = stop collection, ignore subsequent. stop-shutdown = stop and shutdown session. repeat[:N] = collect N capture ranges. repeat-shutdown:N = repeat N then shutdown. Use --kill to control target app termination. |
+| | `--clock-frequency-changes` | true, false | false | Collect clock frequency changes. Available only in Nsight Systems Embedded Platforms Edition and Arm server (SBSA) platforms. |
+| | `--command-file` | \<filename\> | none | Open a file that contains profile switches and parse the switches. Additional switches on the command line override switches in the file. Can be specified more than once. |
+| | `--cpu-cluster-events` | 0x16, 0x17, ..., none | none | Collect per-cluster Uncore PMU counters. Multiple values separated by commas (no spaces). Use --cpu-cluster-events=help for full list. Embedded Platforms Edition only. |
+| | `--cpu-core-events` (Embedded) | 0x11,0x13,...,none | none | Collect per-core PMU counters. Multiple values separated by commas. Use --cpu-core-events=help for full list. |
+| | `--cpu-core-events` (Workstation) | 'help' or end user events 'x,y' | '2' (Instructions Retired) | Select CPU Core events to sample. Use --cpu-core-events=help for full list. Use --event-sample to enable. |
+| | `--cpu-core-metrics` | 0,1,2,...,none | none | Collect metrics on the CPU core. Use --cpu-core-metrics=help for full list. Use --event-sample to enable. Only available on Grace. |
+| | `--cpu-socket-events` (Embedded) | 0x2a,0x2c,...,none | none | Collect per-socket Uncore PMU counters. Embedded Platforms Edition only. |
+| | `--cpu-socket-events` (Workstation) | 'help' or events 'x,y' | none | Select Uncore CPU Socket events to sample. Use --event-sample to enable. |
+| | `--cpu-socket-metrics` | 0,1,2,...,none | none | Collect Uncore metrics on the CPU socket. Use --event-sample to enable. Only available on Grace. |
+| | `--cpuctxsw` | process-tree, system-wide, none | process-tree | Trace OS thread scheduling activity. Select none to disable. Some values require root. If --sample is not none, --cpuctxsw is set to same value as --sample. Requires --sampling-trigger=perf in Embedded Platforms Edition. |
+| | `--cuda-flush-interval` | milliseconds | See desc | Interval when buffered CUDA data is saved. For collections over 30 seconds, 10 seconds recommended. Default: 10000 for Embedded Platforms Edition, 0 otherwise. |
+| | `--cuda-graph-trace` | graph, node | graph | If graph, CUDA graphs traced as a whole (requires driver 515.43+). If node, individual node activities collected (may cause significant overhead). |
+| | `--cuda-memory-usage` | true, false | false | Track GPU memory usage by CUDA kernels. Only when CUDA tracing is enabled. May cause significant overhead. |
+| | `--cuda-trace-all-apis` | true, false | false | Trace all CUDA APIs including less relevant ones. Default skips some non-critical APIs. May cause significant overhead. |
+| | `--cuda-um-cpu-page-faults` | true, false | false | Track page faults when CPU code accesses device-resident memory. May cause significant overhead. Not available on Embedded Platforms Edition. |
+| | `--cuda-um-gpu-page-faults` | true, false | false | Track page faults when GPU code accesses host-resident memory. May cause significant overhead. Not available on Embedded Platforms Edition. |
+| | `--cudabacktrace` | all, none, kernel, memory, sync, other | none | Enable backtrace collection when CUDA API is invoked. Significant overhead. Values combinable with ','. Each may have threshold after ':' (default 1000ns). CPU sampling must be enabled. |
+| `-y` | `--delay` | \<seconds\> | 0 | Collection start delay in seconds. |
+| `-d` | `--duration` | \<seconds\> | NA | Collection duration in seconds (must be > 0). Launched process terminated unless --kill none. |
+| | `--duration-frames` | 60 \<= integer | disabled | Stop recording after this many frames captured. Cannot include other stop options. |
+| | `--dx-force-declare-adapter-removal-support` | true, false | false | Call DXGIDeclareAdapterRemovalSupport() before device creation. Requires DX11 or DX12 trace. |
+| | `--dx12-gpu-workload` | true, false, individual, batch, none | individual | DX12 GPU workload tracing mode. individual = per-workload. batch = per-ExecuteCommandLists batch. none = no GPU trace. Requires --trace=dx12. Windows only. |
+| | `--dx12-wait-calls` | true, false | true | Trace wait calls blocking on fences for DX12. Requires --trace=dx12. Windows only. |
+| | `--xhv-vm-symbols` | \<filepath\> | none | XHV sampling config file. Embedded Platforms Edition only. |
+| `-e` | `--env-var` | A=B | NA | Set environment variables for the launched application. Multiple: A=B,C=D. |
+| | `--enable` | \<plugin\>[,arg1,arg2,...] | NA | Use specified plugin. Can be specified multiple times. Use --enable=help to list all plugins. |
+| | `--etw-provider` | "\<name\>,\<guid\>" or JSON file | none | Add custom ETW trace provider(s). Can be used multiple times. Windows only. |
+| | `--event-sample` | system-wide, none | none | Enable event sampling. Use --cpu-core-events=help and --os-events=help for available events. Not on Embedded Platforms Edition. |
+| | `--event-sampling-frequency` | 1 to 20 Hz | 3 | Sampling frequency for event counts. Not on Embedded Platforms Edition. |
+| | `--export` | arrow, arrowdir, hdf, json, parquetdir, sqlite, text, none | none | Create additional export files. Can be given more than once. Warning: large data may take minutes. |
+| | `--flush-on-cudaprofilerstop` | true, false | true | If true, cudaProfilerStop() flushes CUDA trace buffers. |
+| `-f` | `--force-overwrite` | true, false | false | Overwrite existing result files with same name. |
+| | `--ftrace` | subsystem1/event1,subsystem2/event2 | | Collect ftrace events. Requires root. No ftrace events by default. |
+| | `--ftrace-keep-user-config` | | | Skip initial ftrace setup, collect already configured events. |
+| | `--gpu-metrics-devices` | GPU ID, help, all, none | none | Collect GPU Metrics from specified devices. Use help to determine GPU IDs. |
+| | `--gpu-metrics-frequency` | integer | 10000 | GPU Metrics sampling frequency in Hz. Min 10, Max 200000. |
+| | `--gpu-metrics-set` | alias, file:\<filename\> | see desc | Metric set for GPU Metrics. Use help for aliases. Default: first suitable set. |
+| | `--gpu-video-device` | help, \<id1,id2,...\>, all, none | none | Analyze video devices. help lists supported devices and IDs. |
+| | `--gpuctxsw` | true, false | false | Trace GPU context switches. Requires driver r435.17+ and root. |
+| | `--help` | \<tag\> | none | Print help message. Optional tag filters relevant options. |
+| | `--hotkey-capture` | 'F1' to 'F12' | 'F12' | Hotkey to trigger profiling. Requires --capture-range=hotkey. |
+| | `--ib-net-info-devices` | \<NIC names\> | none | Comma-separated NIC names for ibdiagnet network discovery. |
+| | `--ib-net-info-files` | \<file paths\> | none | Paths of existing ibdiagnet db_csv files. |
+| | `--ib-net-info-output` | \<directory\> | none | Directory for ibdiagnet output. |
+| | `--ib-switch-congestion-device` | \<IB switch GUIDs\> | none | IB switch GUIDs for congestion events. System scope. Repeatable. |
+| | `--ib-switch-congestion-nic-device` | \<NIC name\> | none | NIC for accessing IB switches. Default: first active NIC. |
+| | `--ib-switch-congestion-percent` | 1-100 | 50 | Percent of IB switch congestion events to collect. |
+| | `--ib-switch-congestion-threshold-high` | 1-1023 | 75 | High threshold percentage for IB switch egress port buffer. |
+| | `--ib-switch-metrics-device` | \<IB switch GUIDs\> | none | IB switch GUIDs for metrics. System scope. Repeatable. |
+| | `--ib-switch-metrics-nic-device` | \<NIC name\> | none | NIC for accessing IB switches for metrics. |
+| `-n` | `--inherit-environment` | true, false | true | true = current + tool env vars. false = only tool env vars. |
+| | `--injection-use-detours` | true, false | true | Use detours for injection. false = use windows hooks (bypasses anti-cheat). |
+| | `--isr` | true, false | false | Trace ISRs and DPCs. Requires admin. Windows only. |
+| | `--kill` | none, sigkill, sigterm, signal number | sigterm | Signal sent to target application's process group. |
+| | `--mpi-impl` | openmpi, mpich | openmpi | MPI implementation. Auto-detected if not specified. Requires --trace=mpi. |
+| | `--nic-metrics` | true, false | false | Collect NIC/HCA device metrics. System scope. Not on Embedded Platforms Edition. |
+| `-p` | `--nvtx-capture` | range@domain, range, range@* | none | NVTX range/domain to trigger profiling. Requires --capture-range=nvtx. |
+| | `--nvtx-domain-exclude` | default, \<domains\> | | Exclude NVTX events from specified domains. Mutually exclusive with --nvtx-domain-include. Requires --trace=nvtx. |
+| | `--nvtx-domain-include` | default, \<domains\> | | Only include NVTX events from specified domains. Mutually exclusive with --nvtx-domain-exclude. Requires --trace=nvtx. |
+| | `--python-functions-trace` | \<json_file\> | | Path to JSON file containing requested NVTX annotations. |
+| | `--opengl-gpu-workload` | true, false | true | Trace OpenGL GPU workload. Requires --trace=opengl. |
+| | `--os-events` | 'help' or 'x,y' | | OS events to sample. Use help for list. Requires --event-sample. Not on Embedded Platforms Edition. |
+| | `--osrt-backtrace-depth` | integer | 24 | Backtrace depth for OS runtime libraries calls. |
+| | `--osrt-backtrace-stack-size` | integer | 6144 | Stack dump size in bytes for OSRT backtraces. |
+| | `--osrt-backtrace-threshold` | nanoseconds | 80000 | Duration threshold for OSRT backtrace collection. |
+| | `--osrt-threshold` | \<nanoseconds\> | 1000 ns | Duration threshold for OSRT API tracing. Values much less than 1000 may cause overhead. Ignored for file APIs when --osrt-file-access=true. |
+| | `--osrt-file-access` | true, false | false | Collect file access data for OSRT APIs. Overrides --osrt-threshold for file APIs. |
+| `-o` | `--output` | \<filename\> | report# | Report file name. Patterns: %q{ENV_VAR}, %h (hostname), %p (PID), %%. Default: report# in working directory. |
+| | `--process-scope` | main, process-tree, system-wide | main | Process scope. Embedded Platforms Edition only. Workstation Edition always system-wide. |
+| | `--python-backtrace` | cuda, none | none | Python backtrace on selected API trigger. Arm SBSA and x86 Linux only. Requires --cudabacktrace. |
+| | `--python-sampling` | true, false | false | Python backtrace sampling. Arm SBSA, x86 Linux and Windows. Consider disabling CPU sampling for Python-only workflows. |
+| | `--python-sampling-frequency` | 1-2000 | 1000 | Python sampling frequency in Hz. Ignored if --python-sampling=false. |
+| | `--pytorch` | autograd-nvtx, autograd-shapes-nvtx, functions-trace, none | none | Enable PyTorch function annotations. |
+| | `--dask` | functions-trace, none | none | Enable Dask function annotations. |
+| | `--qnx-kernel-events` | class/event, ... | none | QNX kernel events. Use help for list. Embedded Platforms Edition only. |
+| | `--qnx-kernel-events-mode` | system, process, fast, wide | system:fast | Default mode for QNX kernel events. Embedded Platforms Edition only. |
+| | `--resolve-symbols` | true, false | true | Resolve symbols of captured samples and backtraces. |
+| | `--retain-etw-files` | true, false | false | Retain and merge ETW files to output directory. |
+| | `--run-as` | \<username\> | none | Run target as specified user. Requires root. Linux only. |
+| `-s` | `--sample` | process-tree, system-wide, xhv, xhv-system-wide, none | process-tree | CPU IP/backtrace sample collection mode. none disables CPU sampling. Some modes require root. |
+| | `--samples-per-backtrace` | integer \<= 32 | 1 (4 for DWARF) | CPU IP samples per backtrace sample. Lower = more data. Not on Embedded Platforms or non-Linux. |
+| | `--sampling-frequency` | 100-8000 | 1000 | Sampling/backtracing frequency in Hz. QNX, L4T, and Windows only. |
+| | `--sampling-period` (Embedded) | integer | dynamic | CPU Cycles before IP sample. Requires --sampling-trigger=perf. |
+| | `--sampling-period` (Workstation) | integer | dynamic | Events before IP sample. Dynamically determined event type. Linux only. |
+| | `--sampling-trigger` | timer, sched, perf, cuda | timer,sched | Backtrace collection trigger. Embedded Platforms Edition only. |
+| | `--session-new` | [a-Z][0-9,a-Z,spaces] | profile-\<id\>-\<app\> | Session name. Starts with alpha. Supports %q{ENV_VAR}, %h, %%. |
+| `-w` | `--show-output` | true, false | true | true = stdout/stderr to console AND report files. false = only to report files. |
+| | `--soc-metrics` | true, false | false | Collect SoC Metrics. Embedded Platforms Edition only. |
+| | `--soc-metrics-frequency` | integer | 10000 | SoC Metrics frequency in Hz. Min 100, Max 1000000. Embedded Platforms Edition only. |
+| | `--soc-metrics-set` | alias, file:\<filename\> | see desc | SoC Metrics set. Embedded Platforms Edition only. |
+| | `--start-frame-index` | 1 \<= integer | disabled | Start recording at this frame index. Cannot include other start options. |
+| `-Y` | `--start-later` | true, false | false | Delay collection until nsys start is executed. Overrides --delay. |
+| | `--stats` | true, false | false | Generate summary statistics. Creates SQLite database. Warning: large data may take minutes. |
+| `-x` | `--stop-on-exit` | true, false | true | Stop on process exit or duration expiry. If false, duration must be set. Runs > 5 min unsupported. |
+| | `--syscall` (experimental) | process-tree, pid-namespace, none | none | Collect system calls. process-tree = app only. pid-namespace = current namespace + children. |
+| `-t` | `--trace` | cuda, nvtx, cublas, cublas-verbose, cusparse, cusparse-verbose, cudnn, cudla, cudla-verbose, cusolver, cusolver-verbose, opengl, opengl-annotations, openacc, openmp, osrt, mpi, nvvideo, vulkan, vulkan-annotations, dx11, dx11-annotations, dx12, dx12-annotations, openxr, openxr-annotations, oshmem, ucx, wddm, tegra-accelerators, python-gil, gds(experimental), none | cuda, opengl, nvtx, osrt | APIs to trace. Multiple values comma-separated. OpenACC/cuXXX auto-enable CUDA. Reflex SDK auto-collected with DX/Vulkan. cuDNN not on Windows. If \<api\>-annotations selected, base API also traced. |
+| | `--trace-fork-before-exec` | true, false | false | Trace child processes after fork, before exec. May cause crash. Linux only. |
+| | `--vsync` | true, false | false | Collect vsync events. Also captures display ftrace events. Embedded Platforms Edition only. |
+| | `--vulkan-gpu-workload` | true, false, individual, batch, none | individual | Vulkan GPU workload tracing. Requires --trace=vulkan. Not on QNX. |
+| | `--wait` | primary, all | all | primary = wait on app process. all = also wait on re-parented processes. |
+| | `--wddm-additional-events` | true, false | true | Collect extended ETW events. Requires --trace=wddm. Windows only. |
+| | `--wddm-backtraces` | true, false | false | Collect WDDM event backtraces. Requires --trace=wddm. Windows only. |
+| | `--xhv-trace` | \<filepath\> | none | Hypervisor trace config. Embedded Platforms Edition only. |
+| | `--xhv-trace-events` | all, none, core, sched, irq, trap | all | Hypervisor trace events. Embedded Platforms Edition only. |
 
 ---
 
-## analyze
+## 5. CLI Analyze Command Switch Options
 
-The `analyze` command performs analysis on an existing report file.
+The `nsys` analyze command generates reports using expert system rules on existing results.
 
-### Syntax
+**Usage:**
 
 ```bash
-nsys analyze [options] <report-file>
+nsys [global-options] analyze [options] [input-file]
 ```
 
-### Options
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--help` | (none) | N/A | Show analyze command help. |
-| `--report` | `=<report_type>` | (default set) | Specify which reports to generate. Same report types as `stats`. |
-| `--format` | `=<format>` | `text` | Output format: `text`, `csv`, `json`. |
-| `--output` | `=<filename>` | stdout | Output filename for the analysis results. |
-| `--force-overwrite` | `=true\|false` | `false` | Overwrite existing output file. |
-| `--time-range` | `=<start:end>` | (full trace) | Analyze only the specified time range (in nanoseconds). |
-| `--gpu` | `=<device_id>` | all | Filter analysis to a specific GPU. |
+| Short | Long | Parameters | Default | Description |
+|-------|------|------------|---------|-------------|
+| | `--help` | \<tag\> | none | Print help message with optional tag filter. |
+| `-f` | `--format` | column, table, csv, tsv, json, hdoc, htable, . | | Output format. "." = default for given output. Can use multiple times or comma-separated list. |
+| | `--force-export` | true, false | false | Force re-export of SQLite from .nsys-rep. |
+| | `--force-overwrite` | true, false | false | Overwrite existing output files. |
+| | `--help-formats` | \<name\>, ALL, [none] | none | List available output formats. |
+| | `--help-rules` | \<name\>, ALL, [none] | none | List available analysis rules. |
+| `-o` | `--output` | -, @\<cmd\>, \<basename\>, . | - | Output destination. "-" = console. "@" prefix = pipe to command. Otherwise file basename. |
+| `-q` | `--quiet` | | | Suppress verbose messages, show only errors. |
+| `-r` | `--rule` | cuda_memcpy_async, cuda_memcpy_sync, cuda_memset_sync, cuda_api_sync, gpu_gaps, gpu_time_util, dx12_mem_ops | all | Analysis rules to execute. Can use multiple times or comma-separated. |
+| | `--sqlite` | \<file.sqlite\> | | Specify SQLite filename. Created from .nsys-rep if needed. |
+| | `--timeunit` | nsec, usec, msec, seconds | nanoseconds | Basic unit of time. Longest prefix matching. |
 
 ---
 
-## cancel
+## 6. CLI Cancel Command Switch Options
 
-The `cancel` command cancels the active trace session in interactive mode. Data collected so far is discarded.
-
-### Syntax
+**Usage:**
 
 ```bash
-nsys cancel [options]
+nsys [global-options] cancel [options]
 ```
 
-### Options
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--help` | (none) | N/A | Show cancel command help. |
-| `--session` | `=<session_id>` | (active) | Specify which session to cancel. |
+| Long | Parameters | Default | Description |
+|------|------------|---------|-------------|
+| `--help` | \<tag\> | none | Print help message. |
+| `--session` | \<session identifier\> | none | Cancel collection in given session. Supports %q{ENV_VAR}, %h, %% patterns. |
 
 ---
 
-## export
+## 7. CLI Export Command Switch Options
 
-The `export` command exports report data to various formats for further analysis.
-
-### Syntax
+**Usage:**
 
 ```bash
-nsys export [options] <report-file>
+nsys [global-options] export [options] [nsys-rep-file]
 ```
 
-### Options
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--help` | (none) | N/A | Show export command help. |
-| `-t`, `--type` | `=sqlite\|hdf5\|text\|csv\|json` | `sqlite` | Export format type. |
-| `-o`, `--output` | `=<filename>` | (input name with new extension) | Output filename. |
-| `--force-overwrite` | `=true\|false` | `false` | Overwrite existing output file. |
-| `--lz4` | `=on\|off` | `on` | Use LZ4 compression for SQLite output. |
-| `--exclude` | `=<table1,table2,...>` | (none) | Exclude specific tables from export. |
-| `--include` | `=<table1,table2,...>` | (all) | Include only specific tables in export. |
-| `--time-range` | `=<start:end>` | (full trace) | Export only the specified time range (nanoseconds). |
-| `--separator` | `=<char>` | `,` | CSV separator character. |
-| `--gpu` | `=<device_id>` | all | Filter to a specific GPU device. |
-
-### Export Examples
-
-```bash
-# Export to SQLite
-nsys export -t sqlite -o my_report.sqlite my_report.nsys-rep
-
-# Export to HDF5
-nsys export -t hdf5 -o my_report.h5 my_report.nsys-rep
-
-# Export only CUDA kernel data to CSV
-nsys export -t csv -o kernels.csv --include=CUPTI_ACTIVITY_KIND_KERNEL my_report.nsys-rep
-
-# Export a specific time range
-nsys export -t sqlite --time-range=1000000000:5000000000 -o range.sqlite my_report.nsys-rep
-```
+| Short | Long | Parameters | Default | Description |
+|-------|------|------------|---------|-------------|
+| | `--append` | | | Don't error on existing directory-format export files. |
+| `-f` | `--force-overwrite` | true, false | false | Overwrite existing result files. |
+| | `--help` | \<tag\> | none | Print help message. |
+| | `--include-blobs` | true, false | false | Export NVTX payloads as binary data. Affects SQLite, Arrow, Parquet. |
+| | `--include-json` | true, false | false | Include repetitive JSON blocks in export. |
+| `-l` | `--lazy` | true, false | true | Lazy table creation (only when data present). Affects SQLite, HDF5, Arrow, Parquet. |
+| `-o` | `--output` | \<filename\> | \<input\>.ext | Set output filename. |
+| `-q` | `--quiet` | true, false | false | Suppress progress bar. |
+| | `--separate-strings` | true, false | false | Output strings separately, one per line. JSON and text only. |
+| `-t` | `--type` | sqlite, hdf, text, json, info, arrow, arrowdir, parquetdir | sqlite | Export format. HDF only on x86_64 Linux and Windows. |
+| | `--tables` | \<pattern\>[,...] | | POSIX regex patterns for table filtering. Advanced feature. Affects SQLite, HDF5, Arrow, Parquet. |
+| | `--times` | \<range\>[,...] | | Time range filter for events. Advanced feature. Affects SQLite, HDF5, Arrow, Parquet. |
+| | `--ts-normalize` | true, false | false | Shift timestamps to UTC wall-clock time. Limited by clock sync precision. |
+| | `--ts-shift` | signed integer (ns) | 0 | Shift all timestamps by given nanoseconds. |
 
 ---
 
-## launch
+## 8. CLI Launch Command Switch Options
 
-The `launch` command opens the Nsight Systems GUI, optionally loading a report file.
-
-### Syntax
+**Usage:**
 
 ```bash
-nsys launch [options] [report-file]
+nsys [global-options] launch [options] <application> [application-arguments]
 ```
 
-### Options
+The launch command shares most options with the profile command. Launch-specific options:
 
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--help` | (none) | N/A | Show launch command help. |
-| `--hostname` | `=<hostname>` | `localhost` | Hostname for remote GUI display. |
-| `--port` | `=<port>` | `auto` | Port for GUI communication. |
-| `--style` | `=<style>` | (system default) | Qt style for the GUI (`fusion`, `windows`, etc.). |
-| `--dpi-scaling` | `=<factor>` | (auto) | DPI scaling factor for the GUI. |
-| `--session` | `=<session_id>` | (none) | Connect to a specific interactive session. |
+| Short | Long | Parameters | Default | Description |
+|-------|------|------------|---------|-------------|
+| | `--session` | session identifier | none | Launch in indicated session. Supports %q{ENV_VAR}, %h, %% patterns. |
+| | `--session-new` | [a-Z][0-9,a-Z,spaces] | profile-\<id\>-\<app\> | Name for the new session. Supports %q{ENV_VAR}, %h, %%. |
+
+All other collection options (backtrace, cpuctxsw, cuda-*, cudabacktrace, cuda-graph-trace, dx12-*, env-var, gpu-video-device, hotkey-capture, inherit-environment, injection-use-detours, isr, mpi-impl, nvtx-*, opengl-gpu-workload, os-events, osrt-*, python-*, pytorch, dask, qnx-*, resolve-symbols, retain-etw-files, run-as, sample, sampling-*, show-output, trace, trace-fork-before-exec, vulkan-gpu-workload, wait, wddm-*) are the same as the Profile command.
 
 ---
 
-## nvprof
+## 9. CLI Sessions Command Switch Subcommands
 
-The `nvprof` command provides backward compatibility with the legacy NVIDIA Visual Profiler (nvprof). It translates nvprof-style command-line arguments to Nsight Systems equivalents.
-
-### Syntax
+**Usage:**
 
 ```bash
-nsys nvprof [nvprof-options] <application> [application-args]
+nsys [global-options] sessions [subcommand]
 ```
 
-### Supported nvprof Options
+| Command | Description |
+|---------|-------------|
+| `list` | List all active sessions including ID, name, and state information |
 
-| nvprof Option | Nsight Systems Equivalent |
-|---------------|--------------------------|
-| `--analysis-metrics` | `--gpu-metrics-device=all` |
-| `--export-profile` | `-o <filename>` |
-| `--kernels <regex>` | Kernel filtering in stats |
-| `--metrics <list>` | `--metrics <list>` |
-| `--print-gpu-trace` | `nsys stats --report gpukernsum` |
-| `--print-summary` | `nsys stats` |
-| `--profile-from-start` | `--delay` |
-| `--system-profiling` | `-s cpu` |
-| `--trace <list>` | `-t <list>` |
-| `--unified-memory-profiling` | `--cuda-um-cpu-page-faults --cuda-um-gpu-page-faults` |
+### Sessions List Options
+
+| Short | Long | Parameters | Default | Description |
+|-------|------|------------|---------|-------------|
+| | `--help` | \<tag\> | none | Print help message. |
+| `-p` | `--show-header` | true, false | true | Whether to show header in output. |
 
 ---
 
-## recipe
+## 10. CLI Shutdown Command Switch Options
 
-The `recipe` command runs predefined analysis recipes on a report file.
-
-### Syntax
+**Usage:**
 
 ```bash
-nsys recipe [options] <recipe-name> <report-file>
+nsys [global-options] shutdown [options]
 ```
 
-### Options
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--help` | (none) | N/A | Show recipe command help. |
-| `--list` | (none) | N/A | List all available recipes. |
-| `--output` | `=<filename>` | stdout | Output file for recipe results. |
-| `--force-overwrite` | `=true\|false` | `false` | Overwrite existing output file. |
-
-### Available Recipes
-
-List available recipes with:
-
-```bash
-nsys recipe --list
-```
-
-Common recipes include:
-- **gpu_speed_of_light**: Overall GPU utilization summary
-- **gpu_memcpy**: Memory transfer analysis
-- **cuda_api**: CUDA API usage summary
-- **kernel_latency**: Kernel launch latency analysis
-- **memory**: Memory usage analysis
-- **nccl**: NCCL collective communication analysis
+| Long | Parameters | Default | Description |
+|------|------------|---------|-------------|
+| `--help` | \<tag\> | none | Print help message. |
+| `--kill` | Linux: one, sigkill, sigterm, signal number. Windows: true, false | sigterm | Signal to send to target. |
+| `--session` | session identifier | none | Session to shutdown. Supports %q{ENV_VAR}, %h, %% patterns. |
 
 ---
 
-## sessions
+## 11. CLI Start Command Switch Options
 
-The `sessions` command lists all active trace sessions in interactive mode.
-
-### Syntax
+**Usage:**
 
 ```bash
-nsys sessions [options]
+nsys [global-options] start [options]
 ```
 
-### Options
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--help` | (none) | N/A | Show sessions command help. |
-| `--format` | `=text\|csv\|json` | `text` | Output format for session listing. |
+The start command supports all collection options from the profile command: accelerator-trace, backtrace, capture-range, capture-range-end, clock-frequency-changes, cpu-core-events, cpu-core-metrics, cpu-socket-events, cpu-socket-metrics, cpuctxsw, enable, xhv-vm-symbols, etw-provider, event-sample, event-sampling-frequency, export, flush-on-cudaprofilerstop, force-overwrite, ftrace, ftrace-keep-user-config, gpu-metrics-devices, gpu-metrics-frequency, gpu-metrics-set, gpu-video-device, gpuctxsw, ib-net-info-*, ib-switch-*, isr, nic-metrics, os-events, output, process-scope, retain-etw-files, sample, samples-per-backtrace, sampling-frequency, sampling-period, sampling-trigger, session-new, show-output, soc-metrics, soc-metrics-frequency, soc-metrics-set, stats, stop-on-exit, syscall, vsync, xhv-trace, xhv-trace-events.
 
 ---
 
-## shutdown
+## 12. CLI Stats Command Switch Options
 
-The `shutdown` command shuts down the Nsight Systems daemon on the target machine.
+Reports are processed using a three-tuple: (report, format, output). The first report uses the first format and first output, the second uses the second, etc. Lists are expanded by repeating the last element.
 
-### Syntax
+**Usage:**
 
 ```bash
-nsys shutdown [options]
+nsys [global-options] stats [options] [input-file]
 ```
 
-### Options
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--help` | (none) | N/A | Show shutdown command help. |
-| `--hostname` | `=<hostname>` | `localhost` | Hostname of the target machine. |
-| `--force` | `=true\|false` | `false` | Force shutdown even if sessions are active. |
+| Short | Long | Parameters | Default | Description |
+|-------|------|------------|---------|-------------|
+| | `--help` | \<tag\> | none | Print help message. |
+| `-f` | `--format` | column, table, csv, tsv, json, hdoc, htable, . | | Output format. Console default: column. File/process default: csv. |
+| | `--force-export` | true, false | false | Force re-export of SQLite from .nsys-rep. |
+| | `--force-overwrite` | true, false | false | Overwrite existing report files. |
+| | `--help-formats` | \<name\>, ALL, [none] | none | List output formats. |
+| | `--help-reports` | \<name\>, ALL, [none] | none | List available reports. |
+| `-o` | `--output` | -, @\<cmd\>, \<basename\>, . | - | Output destination. "-" = console. "@" = pipe to command. Otherwise file basename. |
+| `-q` | `--quiet` | | | Only show errors. |
+| `-r` | `--report` | See Report Scripts | default set | Reports to generate. Default: nvtx_sum, osrt_sum, cuda_api_sum, cuda_gpu_kern_sum, cuda_gpu_mem_time_sum, cuda_gpu_mem_size_sum, openmp_sum, opengl_khr_range_sum, vulkan_marker_sum, dx12_gpu_marker_sum, etc. |
+| | `--report-dir` | \<path\> | | Add directory to report script search path. Can be used multiple times. |
+| | `--sqlite` | \<file.sqlite\> | | Specify SQLite filename. |
+| | `--timeunit` | nsec, usec, msec, seconds | nanoseconds | Basic unit of time. |
 
 ---
 
-## start
+## 13. CLI Status Command Switch Options
 
-The `start` command begins a new trace session in interactive mode. Use with `stop` to control the trace window.
-
-### Syntax
+**Usage:**
 
 ```bash
-nsys start [options]
+nsys [global-options] status [options]
 ```
 
-### Options
-
-The `start` command accepts the same tracing options as `profile` (e.g., `-t`, `--sample`, `--delay`, `--duration`, `--gpu-metrics-device`, etc.), plus:
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--help` | (none) | N/A | Show start command help. |
-| `--name` | `=<session_name>` | `auto` | Name for the trace session. |
-| `--hostname` | `=<hostname>` | `localhost` | Target hostname for remote tracing. |
+| Short | Long | Parameters | Default | Description |
+|-------|------|------------|---------|-------------|
+| | `--all` | | | Print all profiling environment information. |
+| `-e` | `--environment` | | | System suitability for profiling. |
+| | `--help` | \<tag\> | none | Print help message. |
+| `-n` | `--network` | | | System suitability for network profiling. |
+| | `--session` | session identifier | none | Status of indicated session. Supports %q{ENV_VAR}, %h, %% patterns. |
 
 ---
 
-## stats
+## 14. CLI Stop Command Switch Options
 
-The `stats` command generates statistical reports from an existing trace file. It is one of the most useful commands for quick analysis without opening the GUI.
-
-### Syntax
+**Usage:**
 
 ```bash
-nsys stats [options] <report-file>
+nsys [global-options] stop [options]
 ```
 
-### Options
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--help` | (none) | N/A | Show stats command help. |
-| `-r`, `--report` | `=<report_type>` | (default set) | Specify report type(s) to generate. See report types table below. Multiple reports can be specified. |
-| `--format` | `=text\|csv\|json\|markdown` | `text` | Output format for the report. |
-| `-o`, `--output` | `=<filename>` | stdout | Output file for the report. |
-| `--force-overwrite` | `=true\|false` | `false` | Overwrite existing output file. |
-| `--time-range` | `=<start:end>` | (full trace) | Restrict analysis to the specified time range (nanoseconds). |
-| `--report-all` | (none) | N/A | Generate all available reports. |
-| `--gpu` | `=<device_id>` | all | Filter to a specific GPU device. |
-| `--user-data` | `=<path>` | (none) | Path to user-defined report definition file. |
-
-### Report Types
-
-| Report Type | Description |
-|------------|-------------|
-| `cuda_api_sum` | CUDA API summary (time per API function) |
-| `cuda_api_kern_sum` | CUDA API kernel launch summary |
-| `cuda_api_mem_sum` | CUDA API memory operation summary |
-| `cuda_api_sync_sum` | CUDA API synchronization summary |
-| `cuda_gpu_kern_sum` | GPU kernel execution summary |
-| `cuda_gpu_kern_trace` | Detailed GPU kernel trace (every launch) |
-| `cuda_gpu_mem_trace` | Detailed GPU memory operation trace |
-| `cuda_gpu_mem_sum` | GPU memory operation summary |
-| `cuda_gpu_stride_sum` | GPU stride access summary |
-| `cuda_gpu_stall` | GPU stall reason analysis |
-| `cuda_gpu_warp` | GPU warp execution summary |
-| `cuda_gpu_occ` | GPU occupancy summary |
-| `cuda_omp` | OpenMP + CUDA overlap analysis |
-| `cuda_uvm` | Unified Memory activity summary |
-| `cuda_hw_metrics` | GPU hardware metrics summary |
-| `cuda_gpu_speed_of_light` | GPU speed-of-light analysis |
-| `nvtx_sum` | NVTX range summary |
-| `nvtx_push_pop` | NVTX push/pop ranges |
-| `nvtx_start_end` | NVTX start/end ranges |
-| `osrt_sum` | OS Runtime API summary |
-| `osrt_api_sum` | OS Runtime API function summary |
-| `omp_sum` | OpenMP summary |
-| `mpi_sum` | MPI communication summary |
-| `cpu_samples` | CPU sampling summary |
-| `cpu_samples_raw` | Raw CPU sample data |
-| `cuda_graph` | CUDA Graph summary |
-| `python_sum` | Python function summary |
-| `vulkan_sum` | Vulkan API summary |
-| `dx12_sum` | DirectX 12 summary |
-| `gpu_metrics` | GPU hardware metrics time series |
-| `nic` | NIC (network) metrics summary |
-| `pwr` | Power metrics summary |
-| `thread` | Thread activity summary |
-
-### Stats Examples
-
-```bash
-# Default stats report
-nsys stats my_profile.nsys-rep
-
-# Generate only CUDA kernel summary
-nsys stats --report cuda_gpu_kern_sum my_profile.nsys-rep
-
-# Generate multiple reports
-nsys stats --report cuda_api_sum,cuda_gpu_kern_sum,osrt_sum my_profile.nsys-rep
-
-# Generate all reports
-nsys stats --report-all my_profile.nsys-rep
-
-# Output as CSV
-nsys stats --report cuda_gpu_kern_sum --format csv -o kernels.csv my_profile.nsys-rep
-
-# Output as JSON
-nsys stats --report cuda_api_sum --format json -o api.json my_profile.nsys-rep
-
-# Analyze a specific time range
-nsys stats --time-range=1000000000:5000000000 my_profile.nsys-rep
-```
+| Long | Parameters | Default | Description |
+|------|------------|---------|-------------|
+| `--help` | \<tag\> | none | Print help message. |
+| `--keep` | time in seconds | 0 | Seconds of data to retain before stop. 0 = retain all. |
+| `--session` | session identifier | none | Session to stop. Supports %q{ENV_VAR}, %h, %% patterns. |
 
 ---
 
-## status
+## 15. Example Single Command Lines
 
-The `status` command displays the current status of the Nsight Systems daemon and any active sessions.
-
-### Syntax
+### Version Information
 
 ```bash
-nsys status [options]
+nsys -v
 ```
+Prints tool version information to the screen.
 
-### Options
-
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--help` | (none) | N/A | Show status command help. |
-| `--environment` | (none) | N/A | Show environment information (CUDA version, driver version, GPU info). |
-| `--session` | `=<session_id>` | (all) | Show status for a specific session. |
-| `--hostname` | `=<hostname>` | `localhost` | Target hostname for remote status check. |
-
-### Status Examples
+### Run with Elevated Privilege
 
 ```bash
-# Check daemon status
-nsys status
-
-# Show environment information
-nsys status --environment
-
-# Check status on a remote machine
-nsys status --hostname=192.168.1.100
+sudo nsys profile <app>
 ```
+Nsight Systems CLI (and target application) will run with elevated privilege. Necessary for features like FTrace or system-wide CPU sampling. Use --run-as to avoid elevating the target application.
+
+### Default Analysis Run
+
+```bash
+nsys profile <application> [application-arguments]
+```
+Launch application. Start collecting immediately. End collection when application stops. Trace CUDA, OpenGL, NVTX, and OSRT APIs. Collect CPU sampling and thread scheduling. Generate report#.nsys-rep.
+
+### Limited Trace Only Run
+
+```bash
+nsys profile --trace=cuda,nvtx -d 20 --sample=none --cpuctxsw=none -o my_test <application>
+```
+Trace CUDA and NVTX only for 20 seconds. No CPU sampling or thread scheduling. Output: my_test.nsys-rep.
+
+### Delayed Start Run
+
+```bash
+nsys profile -e TEST_ONLY=0 -y 20 <application>
+```
+Set TEST_ONLY=0. Start collecting after 20 seconds. End at application exit. Default trace and sampling.
+
+### Collect ftrace Events
+
+```bash
+nsys profile --ftrace=drm/drm_vblank_event -d 20
+```
+Collect ftrace drm_vblank_event events for 20 seconds. Requires root. List events: `sudo cat /sys/kernel/debug/tracing/available_events`
+
+### Run GPU Metric Sampling on One TU10x
+
+```bash
+nsys profile --gpu-metrics-devices=0 --gpu-metrics-set=tu10x-gfxt <application>
+```
+Collect GPU metrics for GPU 0 (TU10x) using tu10x-gfxt metric set at 10 kHz.
+
+### Run GPU Metric Sampling on All GPUs
+
+```bash
+nsys profile --gpu-metrics-devices=all --gpu-metrics-frequency=20000 <application>
+```
+Collect GPU metrics for all GPUs at 20 kHz sampling frequency.
+
+### Collect CPU IP/backtrace and CPU Context Switch
+
+```bash
+nsys profile --sample=system-wide --duration=5
+```
+System-wide CPU IP/backtrace samples and context switch trace for 5 seconds. Requires root.
+
+### Get Available CPU Core Events
+
+```bash
+nsys profile --cpu-core-events=help
+```
+Lists CPU events and maximum number that can be collected concurrently.
+
+### Collect System-wide CPU Events
+
+```bash
+nsys profile --event-sample=system-wide --cpu-core-events='1,2' --event-sampling-frequency=5 <app>
+```
+System-wide CPU sampling + "CPU Cycles" and "Instructions Retired" every 200 ms. Requires root.
+
+### Collect Custom ETW Trace (Windows)
+
+```bash
+nsys profile --etw-provider=file.JSON
+```
+Configure custom ETW collectors from JSON file. Collect for 20 seconds.
+
+ETW level values: TRACE_LEVEL_CRITICAL, TRACE_LEVEL_ERROR, TRACE_LEVEL_WARNING, TRACE_LEVEL_INFORMATION, TRACE_LEVEL_VERBOSE.
+
+ETW flag values: EVENT_TRACE_FLAG_ALPC, EVENT_TRACE_FLAG_CSWITCH, EVENT_TRACE_FLAG_DBGPRINT, EVENT_TRACE_FLAG_DISK_FILE_IO, EVENT_TRACE_FLAG_DISK_IO, EVENT_TRACE_FLAG_DISK_IO_INIT, EVENT_TRACE_FLAG_DISPATCHER, EVENT_TRACE_FLAG_DPC, EVENT_TRACE_FLAG_DRIVER, EVENT_TRACE_FLAG_FILE_IO, EVENT_TRACE_FLAG_FILE_IO_INIT, EVENT_TRACE_FLAG_IMAGE_LOAD, EVENT_TRACE_FLAG_INTERRUPT, EVENT_TRACE_FLAG_JOB, EVENT_TRACE_FLAG_MEMORY_HARD_FAULTS, EVENT_TRACE_FLAG_MEMORY_PAGE_FAULTS, EVENT_TRACE_FLAG_NETWORK_TCPIP, EVENT_TRACE_FLAG_NO_SYSCONFIG, EVENT_TRACE_FLAG_PROCESS, EVENT_TRACE_FLAG_PROCESS_COUNTERS, EVENT_TRACE_FLAG_PROFILE, EVENT_TRACE_FLAG_REGISTRY, EVENT_TRACE_FLAG_SPLIT_IO, EVENT_TRACE_FLAG_SYSTEMCALL, EVENT_TRACE_FLAG_THREAD, EVENT_TRACE_FLAG_VAMAP, EVENT_TRACE_FLAG_VIRTUAL_ALLOC.
+
+### Profile a Python Script with CUDA
+
+```bash
+nsys profile --trace=cuda,cudnn,cublas,osrt,nvtx --delay=60 python my_dnn_script.py
+```
+Trace CUDA, cuDNN, cuBLAS, OSRT, and NVTX. Start profiling 60 seconds after launch.
+
+### Profile a Vulkan Application
+
+```bash
+nsys profile --trace=vulkan,osrt,nvtx --delay=60 ./myapp
+```
+Trace Vulkan, OSRT, and NVTX. Start profiling 60 seconds after launch.
 
 ---
 
-## stop
+## 16. Example Interactive CLI Command Sequences
 
-The `stop` command stops the active trace session in interactive mode and saves the collected data.
-
-### Syntax
+### Collect from Beginning, End Manually
 
 ```bash
-nsys stop [options]
+nsys start --stop-on-exit=false
+nsys launch --trace=cuda,nvtx --sample=none <application>
+nsys stop
+```
+Create interactive CLI. Begin collecting on application launch. Trace CUDA and NVTX. Stop only when explicitly requested.
+
+> **Warning:** If you start a collection and fail to stop it, storage may fill with collected data. Nsight Systems does not support runs over 5 minutes.
+
+### Run Application, Begin Collection Manually
+
+```bash
+nsys launch -w true <application>
+nsys start
+```
+Create interactive CLI. Launch application. No data collected until `nsys start`. Profile until application ends.
+
+> **Note:** If application exits before start is called, Nsight Systems creates an empty .nsys-rep file.
+
+### Run Application, Name Session, Keep Last Seconds
+
+```bash
+nsys start --session-new=mysession
+nsys launch --session=mysession myapp
+nsys stop --session=mysession --keep=3
+```
+Create named session. Launch app with default options. Stop and keep only last 3 seconds of data.
+
+### Use cudaProfilerStart/Stop
+
+```bash
+nsys start -c cudaProfilerApi
+nsys launch -w true <application>
+```
+Begin collecting on cudaProfilerStart(). Stop at cudaProfilerStop(), nsys stop, or process termination.
+
+> **Note:** Use --capture-range-end=repeat to capture separate reports for each cudaProfilerStart/Stop pair.
+
+### Use NVTX Capture Range
+
+```bash
+nsys start -c nvtx
+nsys launch -w true -p MESSAGE@DOMAIN <application>
+```
+Begin collecting when NVTX range with given message in given domain opens.
+
+NVTX capture range formats:
+- `Message@Domain` -- ranges with given message in given domain
+- `Message@*` -- ranges with given message in all domains
+- `Message` -- ranges with given message in default domain
+
+Enable non-registered NVTX strings:
+```bash
+nsys launch -w true -p profiler@service -e NSYS_NVTX_PROFILER_REGISTER_ONLY=0 ./app
 ```
 
-### Options
+### Multiple Start/Stop Cycles
 
-| Option | Parameters | Default | Description |
-|--------|-----------|---------|-------------|
-| `--help` | (none) | N/A | Show stop command help. |
-| `--session` | `=<session_id>` | (active) | Specify which session to stop. |
-| `--output` | `=<filename>` | (auto) | Output filename for the trace data. |
-| `--force-overwrite` | `=true\|false` | `false` | Overwrite existing output file. |
-| `--stats` | `=true\|false` | `false` | Generate a stats report after stopping. |
+```bash
+nsys launch <application>
+nsys start
+nsys stop
+nsys start
+nsys stop
+nsys shutdown --kill sigkill
+```
+First start/stop generates report#.qstrm. Second generates report#.nsys-rep. Shutdown sends sigkill.
+
+> **Note:** `nsys cancel` after `nsys start` cancels collection without generating a report.
 
 ---
 
-## Example Single Command Lines
+## 17. Example Stats Command Sequences
 
-### Version and Help
+### Display Default Statistics
 
 ```bash
-# Display version
-nsys --version
+nsys stats report1.nsys-rep
+```
+Export SQLite from .nsys-rep (if not existing). Print default reports in column format.
 
-# Display global help
-nsys --help
-
-# Display profile-specific help
-nsys profile --help
-
-# Display stats-specific help
-nsys stats --help
+Equivalent:
+```bash
+nsys profile --stats=true <application>
 ```
 
-### Default Profile Run
+### Display Specific Report
 
 ```bash
-# Profile with default settings (traces cuda, nvtx, osrt)
-nsys profile ./my_application
+nsys stats --report cuda_gpu_trace report1.nsys-rep
+```
+Print the cuda_gpu_trace report.
 
-# Profile with custom output name
-nsys profile -o my_profile ./my_application
+### Multiple Reports, Formats, Outputs
 
-# Profile with forced overwrite
-nsys profile -o my_profile --force-overwrite=true ./my_application
+```bash
+nsys stats --report cuda_gpu_trace --report cuda_gpu_kern_sum --report cuda_api_sum \
+  --format csv,column --output .,- report1.nsys-rep
+```
+Three reports. First to CSV file. Other two to console as columns.
+
+### Pipe Report to Command
+
+```bash
+nsys stats --report cuda_api_sum --format table \
+  --output @"grep -E (-|Name|cudaFree" test.sqlite
+```
+Pipe table-formatted cuda_api_sum output through grep. Limitations: no shell expansions, no pipes, no redirections. Use shell scripts for complex commands.
+
+---
+
+## 18. System Wide API Trace on Windows
+
+Trace DX11, DX12, or Vulkan in already-running applications:
+
+```bash
+nsys profile --trace=dx12-annotations,wddm --dx12-gpu-workload=individual --duration=20
+```
+Then click each target application window. For DX11/DX12, the application must gain system focus. For Vulkan, the application must be launched after the nsys profile command.
+
+---
+
+## 19. Handling Application Launchers
+
+### Single-Node Profiling
+
+Prefix nsys before program or launcher:
+```bash
+nsys profile [nsys args] mpirun [mpirun args] ...
 ```
 
-### Limited Trace
+### Multi-Node Profiling
 
+Prefix nsys before application, not launcher:
 ```bash
-# Trace only CUDA (no OS runtime, no NVTX)
-nsys profile -t cuda -o cuda_only ./my_application
-
-# Trace only CUDA and NVTX
-nsys profile -t cuda,nvtx -o cuda_nvtx ./my_application
-
-# Trace CUDA with CPU sampling disabled
-nsys profile -t cuda,nvtx -s none -o no_sampling ./my_application
+mpirun [mpirun args] nsys profile [nsys args] ...
 ```
 
-### Delayed Start
+Use rank/ID in output filename:
+- `%q{OMPI_COMM_WORLD_RANK}` -- Open MPI
+- `%q{PMI_RANK}` -- MPICH
+- `%q{SLURM_PROCID}` -- Slurm
+- `%p` -- PID
+
+> **Warning:** Multiple processes writing to the same report file will cause an error.
+
+### Profile Single Process (Rank 0 Only)
 
 ```bash
-# Skip first 10 seconds (e.g., initialization)
-nsys profile --delay=10 -t cuda,nvtx -o skip_init ./my_application
-
-# Profile only 30 seconds after 5-second warmup
-nsys profile --delay=5 --duration=30 -t cuda,nvtx -o middle_section ./my_application
-
-# Use warmup to allow JIT compilation to complete before tracing
-nsys profile --warmup=15 -t cuda,nvtx -o after_jit python train.py
+#!/bin/bash
+# Use $PMI_RANK for MPICH and $SLURM_PROCID with srun
+if [ $OMPI_COMM_WORLD_RANK -eq 0 ]; then
+    nsys profile -e NSYS_MPI_STORE_TEAMS_PER_RANK=1 -t mpi "$@"
+else
+    "$@"
+fi
 ```
 
-### ftrace (Linux Kernel Function Tracing)
+Execute: `mpirun [mpirun options] ./nsys_profile.sh ./myapp [app options]`
+
+> **Note:** When profiling subset of MPI ranks, set NSYS_MPI_STORE_TEAMS_PER_RANK=1.
+
+### DeepSpeed
 
 ```bash
-# Trace specific kernel functions (requires root)
-sudo nsys profile -t cuda,ftrace --ftrace-events=nvidia,pthread_create -o ftrace_profile ./my_application
-
-# Trace all ftrace events matching pattern
-sudo nsys profile -t cuda,ftrace --ftrace-events='nvidia*' -o nvidia_ftrace ./my_application
+#!/bin/bash
+nsys profile -t cuda,mpi,nvtx,cudnn -o rname.%p python ...
 ```
 
-### GPU Metrics
+Use with: `deepspeed --no_python [deepspeed args] ./nsys_profile.sh`
+
+### GPU and NIC Metrics (Single Rank)
 
 ```bash
-# Collect GPU metrics from all GPUs
-nsys profile -t cuda --gpu-metrics-device=all -o gpu_metrics ./my_application
-
-# Collect GPU metrics from GPU 0 at 50kHz
-nsys profile -t cuda --gpu-metrics-device=0 --gpu-metrics-frequency=50000 -o high_freq_metrics ./my_application
-
-# Collect specific metric groups
-nsys profile -t cuda --gpu-metrics-device=all --metrics=gpc__cycles_active,sm__cycles_active -o specific_metrics ./my_application
-
-# Collect GPU power and temperature metrics
-nsys profile -t cuda --gpu-metrics-device=all --gpu-temp-power=true -o power_metrics ./my_application
+#!/bin/bash
+if [ $OMPI_COMM_WORLD_LOCAL_RANK -eq 0 ]; then
+    nsys profile --nic-metrics=true --gpu-metrics-devices=all "$@"
+else
+    nsys profile "$@"
+fi
 ```
 
-### CPU Events and Sampling
-
+Per-rank GPU metrics:
 ```bash
-# Enable CPU sampling with high frequency
-nsys profile -t cuda,nvtx -s cpu --sample-frequency=10000 -o high_sample ./my_application
-
-# Enable CPU sampling with backtraces
-nsys profile -t cuda,nvtx -s cpu --cpu-backtrace=true -o with_backtraces ./my_application
-
-# Trace OS runtime (pthreads, I/O)
-nsys profile -t cuda,nvtx,osrt -o osrt_trace ./my_application
-
-# Trace CPU context switches (requires root)
-sudo nsys profile -t cuda --cpuctxsw=thread -o ctxsw ./my_application
-
-# Trace system calls
-nsys profile -t cuda,syscalls -o syscalls_trace ./my_application
-```
-
-### ETW (Windows Event Tracing)
-
-```bash
-# Trace with ETW on Windows
-nsys profile -t cuda,etw -o etw_profile my_application.exe
-
-# Trace DirectX 12 with ETW
-nsys profile -t cuda,dx12,etw -o dx12_profile my_application.exe
-
-# Trace WDDM events
-nsys profile -t cuda,wddm -o wddm_profile my_application.exe
-```
-
-### Python Profiling
-
-```bash
-# Profile a Python script with CUDA tracing
-nsys profile -t cuda,nvtx,osrt -s cpu -o python_profile python my_script.py
-
-# Profile with Python function tracing enabled
-nsys profile -t cuda,nvtx,osrt,python -s cpu --python-backtrace=true -o python_funcs python my_script.py
-
-# Profile with NumPy tracing
-nsys profile -t cuda,nvtx,osrt,python,numpy -s cpu -o python_numpy python my_script.py
-
-# Profile PyTorch with NVTX integration
-nsys profile -t cuda,nvtx,osrt -s cpu -o pytorch_profile python train.py
-
-# Profile TensorFlow with CUDA tracing
-nsys profile -t cuda,nvtx,osrt -s cpu -o tf_profile python train.py
-
-# Profile a Jupyter notebook cell
-nsys profile -t cuda,nvtx,osrt -s cpu -o notebook_profile jupyter execute notebook.ipynb
-```
-
-### Vulkan Profiling
-
-```bash
-# Profile a Vulkan application
-nsys profile -t vulkan,nvtx -s cpu -o vulkan_profile ./vulkan_app
-
-# Profile Vulkan with GPU metrics
-nsys profile -t vulkan --gpu-metrics-device=all -o vulkan_gpu ./vulkan_app
-
-# Profile Vulkan loader calls
-nsys profile -t vulkan,vulkan-loader -s cpu -o vulkan_loader ./vulkan_app
-```
-
-### CUDA Memory and Unified Memory
-
-```bash
-# Profile with CUDA memory usage tracking
-nsys profile -t cuda --cuda-memory-usage=true -o mem_usage ./my_application
-
-# Profile with Unified Memory transfer tracing
-nsys profile -t cuda,uvm -o uvm_transfers ./my_application
-
-# Profile with Unified Memory page faults
-sudo nsys profile -t cuda,uvm --cuda-um-cpu-page-faults=true --cuda-um-gpu-page-faults=true -o um_page_faults ./my_application
-
-# Profile with CUDA backtraces
-nsys profile -t cuda --cudabacktrace=true -o cuda_bt ./my_application
-```
-
-### CUDA Graph Profiling
-
-```bash
-# Profile with CUDA Graph tracing (enabled by default)
-nsys profile -t cuda --cudagraph=true -o cuda_graph ./my_application
-
-# Profile with CUDA Graph node-level detail
-nsys profile -t cuda --cudagraph=true --cudagrpcpu=true -o graph_detail ./my_application
-```
-
-### Multi-Process Profiling
-
-```bash
-# Profile an MPI application (one rank)
-mpirun -np 1 nsys profile -t cuda,nvtx,mpi -o mpi_rank_%p ./my_mpi_app
-
-# Profile all MPI ranks (each gets its own file)
-mpirun -np 4 nsys profile -t cuda,nvtx,mpi -o rank_%p ./my_mpi_app
+#!/bin/bash
+nsys profile -e CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK} \
+  --gpu-metrics-devices=${OMPI_COMM_WORLD_LOCAL_RANK} "$@"
 ```
 
 ---
 
-## Example Interactive CLI Sequences
+## 20. CLI nvprof Command Switch Options
 
-Interactive mode allows you to control tracing with `start` and `stop` commands. This is useful when you want to trace a specific portion of a long-running application.
+The nvprof command helps former nvprof users transition to nsys. No additional nsys functionality available.
 
-### Basic Interactive Sequence
-
-```bash
-# Terminal 1: Start the daemon and trace session
-nsys start --name=my_session -t cuda,nvtx -s cpu
-
-# Terminal 2: Launch the application normally
-./my_application
-
-# Terminal 1: Start tracing when ready
-nsys start --name=my_session
-
-# ... wait for the interesting part ...
-
-# Terminal 1: Stop tracing and save
-nsys stop --name=my_session -o interactive_profile
-
-# Or cancel without saving
-nsys cancel --name=my_session
-```
-
-### Delayed Start with Interactive Control
+**Usage:**
 
 ```bash
-# Start daemon
-nsys start --name=gpu_session -t cuda --gpu-metrics-device=all
-
-# Launch application (tracing starts automatically)
-./my_application &
-
-# Wait for the interesting phase, then stop
-nsys stop --name=gpu_session -o gpu_session_profile
-
-# Check status at any time
-nsys status
+nsys nvprof [options]
 ```
 
-### Remote Interactive Profiling
+| Switch | Parameters | nsys Equivalent | Description |
+|--------|-----------|-----------------|-------------|
+| `--annotate-mpi` | off, openmpi, mpich | --trace=mpi AND --mpi-impl | Annotate MPI calls with NVTX markers. |
+| `--cpu-thread-tracing` | on, off | --trace=osrt | Collect CPU thread API activity. |
+| `--profile-api-trace` | none, runtime, driver, all | --trace=cuda | CUDA API tracing. runtime or driver = all for nsys. |
+| `--profile-from-start` | on, off | if off: --capture-range=cudaProfilerApi | Enable/disable profiling from start. |
+| `-t` / `--timeout` | \<nanoseconds\> (default 0) | --duration=seconds | Stop after timeout. nsys starts counting immediately. |
+| `--cpu-profiling` | on, off | --sampling=cpu | CPU profiling toggle. |
+| `--openacc-profiling` | on, off | --trace=openacc | OpenACC profiling. |
+| `-o` / `--export-profile` | \<filename\> | --output={filename} and/or --export=sqlite | Export file. Supports %q{ENV_VAR}, %h, %%. |
+| `-f` / `--force-overwrite` | | --force-overwrite=true | Force overwrite. |
+| `-h` / `--help` | | --help | Print help. |
+| `-V` / `--version` | | --version | Print version. |
 
-```bash
-# On host: start daemon on remote target
-nsys start --hostname=192.168.1.100 --name=remote_session -t cuda,nvtx -s cpu
-
-# On target: launch the application
-./my_application
-
-# On host: stop the trace
-nsys stop --hostname=192.168.1.100 --name=remote_session -o remote_profile
-
-# On host: open the report locally
-nsys-ui remote_profile.nsys-rep
-```
-
-### Attach to Running Process
-
-```bash
-# Attach to a running process by PID
-nsys profile --launch-attach=12345 -t cuda,nvtx -o attached_profile
-
-# Trace for 10 seconds then detach
-nsys profile --launch-attach=12345 --duration=10 -t cuda,nvtx -o ten_second_trace
-```
+> **Note:** NVIDIA Visual Profiler (NVVP) and NVIDIA nvprof are deprecated. Migrate to Nsight Systems.
 
 ---
 
-## Example Stats Command Sequences
+## 21. Opening Command Line Results
 
-### Quick Overview
+### Open in GUI
 
-```bash
-# Generate default stats (summary of all major categories)
-nsys stats my_profile.nsys-rep
-```
+The .nsys-rep file can be opened in any GUI of the same version or later. Very large files may consume all host memory.
 
-This produces tables covering:
-1. **CUDA API Statistics**: Total time and count for each CUDA API function
-2. **CUDA GPU Kernel Statistics**: Min/max/avg time and count per kernel
-3. **CUDA GPU Memory Statistics**: Transfer sizes and durations
-4. **OS Runtime API Statistics**: Time in OS functions
+### Import Windows ETL Files
 
-### Focused Analysis
-
-```bash
-# Focus on GPU kernel performance
-nsys stats --report cuda_gpu_kern_sum my_profile.nsys-rep
-
-# Focus on CUDA API overhead
-nsys stats --report cuda_api_sum my_profile.nsys-rep
-
-# Focus on memory transfers
-nsys stats --report cuda_gpu_mem_sum my_profile.nsys-rep
-
-# Focus on CPU hot spots
-nsys stats --report cpu_samples my_profile.nsys-rep
-
-# Focus on OS runtime overhead
-nsys stats --report osrt_sum my_profile.nsys-rep
-```
-
-### Exporting Reports
-
-```bash
-# Export kernel summary as CSV
-nsys stats --report cuda_gpu_kern_sum --format csv -o kernels.csv my_profile.nsys-rep
-
-# Export multiple reports as JSON
-nsys stats --report cuda_api_sum,cuda_gpu_kern_sum,cuda_gpu_mem_sum --format json -o full_report.json my_profile.nsys-rep
-
-# Export all reports to a directory
-nsys stats --report-all --format csv -o ./reports/ my_profile.nsys-rep
-```
-
-### Time-Range Analysis
-
-```bash
-# Analyze only the first second of the trace
-nsys stats --time-range=0:1000000000 my_profile.nsys-rep
-
-# Analyze a specific time window (2s to 5s)
-nsys stats --time-range=2000000000:5000000000 --report cuda_gpu_kern_sum my_profile.nsys-rep
-
-# Combine with report type
-nsys stats --time-range=1000000000:3000000000 --report cuda_api_sum,cuda_gpu_kern_sum my_profile.nsys-rep
-```
-
-### Detailed Trace Analysis
-
-```bash
-# Show every single kernel launch with full details
-nsys stats --report cuda_gpu_kern_trace my_profile.nsys-rep
-
-# Show every memory transfer
-nsys stats --report cuda_gpu_mem_trace my_profile.nsys-rep
-
-# Show NVTX range summary
-nsys stats --report nvtx_sum my_profile.nsys-rep
-```
-
-### GPU Metrics Analysis
-
-```bash
-# Show GPU hardware metrics
-nsys stats --report cuda_hw_metrics my_profile.nsys-rep
-
-# Show GPU speed-of-light analysis
-nsys stats --report cuda_gpu_speed_of_light my_profile.nsys-rep
-
-# Show occupancy information
-nsys stats --report cuda_gpu_occ my_profile.nsys-rep
-```
-
-### Combined Workflow
-
-```bash
-# Step 1: Profile the application
-nsys profile -t cuda,nvtx,osrt -s cpu --gpu-metrics-device=all --stats=true -o my_profile ./my_application
-
-# The --stats=true flag automatically generates a default stats report.
-# For more detailed analysis:
-
-# Step 2: Generate detailed kernel analysis
-nsys stats --report cuda_gpu_kern_trace --format csv -o kernels.csv my_profile.nsys-rep
-
-# Step 3: Generate API overhead analysis
-nsys stats --report cuda_api_sum --format csv -o api.csv my_profile.nsys-rep
-
-# Step 4: Generate CPU hot-spot analysis
-nsys stats --report cpu_samples --format csv -o cpu.csv my_profile.nsys-rep
-
-# Step 5: Export full database for custom SQL queries
-nsys export -t sqlite -o my_profile.sqlite my_profile.nsys-rep
-
-# Step 6: Query with custom SQL
-sqlite3 my_profile.sqlite "SELECT displayName, AVG(duration)/1000 as avg_us, COUNT(*) FROM CUPTI_ACTIVITY_KIND_KERNEL GROUP BY displayName ORDER BY SUM(duration) DESC LIMIT 10;"
-```
-
----
-
-## Next Steps
-
-- [Chapter 1: Overview & Getting Started](01-overview.md) -- Installation and first steps.
-- [Chapter 3: CUDA Tracing Reference](03-cuda-tracing.md) -- Detailed CUDA tracing configuration and function lists.
+ETL files from Xperf or GPUView can be imported via the Import dialog to create .nsys-rep files.
