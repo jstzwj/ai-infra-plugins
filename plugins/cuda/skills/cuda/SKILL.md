@@ -114,6 +114,55 @@ nvcc -gencode=arch=compute_70,code=sm_70 \
 | Constant | Off-chip (DRAM) | Yes | R | All threads + host | Application |
 | Texture | Off-chip (DRAM) | Yes | R | All threads + host | Application |
 
+## Code Examples
+
+Official CUDA samples from [NVIDIA/cuda-samples](https://github.com/NVIDIA/cuda-samples), organized by category:
+
+### 0_Introduction (48 samples)
+Basic CUDA concepts and runtime API usage. Key samples:
+- `vectorAdd` - Basic kernel launch and memory operations
+- `matrixMul` - Matrix multiplication with shared memory tiling
+- `simpleCooperativeGroups` - Cooperative groups fundamentals
+- `simpleStreams` - CUDA streams for concurrent execution
+- `simpleMultiGPU` - Multi-GPU programming basics
+- `simpleCudaGraphs` *(in 3_CUDA_Features)* - CUDA Graph capture and execution
+
+### 2_Concepts_and_Techniques (34 samples)
+Parallel algorithms and optimization techniques. Key samples:
+- `reduction` - Parallel reduction with shared memory
+- `scan` - Parallel prefix sum (scan)
+- `shfl_scan` - Warp-level shuffle operations for scan
+- `histogram` - Histogram computation with atomics
+- `sortingNetworks` - Sorting network implementations
+- `radixSortThrust` - Radix sort using Thrust
+
+### 3_CUDA_Features (26 samples)
+Advanced CUDA features. Key samples:
+- `simpleCudaGraphs` - CUDA Graph API usage
+- `jacobiCudaGraphs` - Iterative solver with CUDA Graphs
+- `cudaTensorCoreGemm` - Tensor Core GEMM (FP16)
+- `bf16TensorCoreGemm` - BFloat16 Tensor Core GEMM
+- `tf32TensorCoreGemm` - TF32 Tensor Core GEMM
+- `globalToShmemAsyncCopy` - Async copy to shared memory (TMA)
+- `cdpAdvancedQuicksort` - CUDA Dynamic Parallelism
+- `graphMemoryNodes` - Graph memory allocation nodes
+
+### 4_CUDA_Libraries (36 samples)
+CUDA library integration. Key samples:
+- `simpleCUBLAS` - cuBLAS matrix operations
+- `matrixMulCUBLAS` - Matrix multiplication via cuBLAS
+- `simpleCUFFT` - cuFFT Fast Fourier Transform
+- `conjugateGradient` - Iterative solver with cuSPARSE/cuBLAS
+
+### 6_Performance (7 samples)
+Performance optimization techniques:
+- `transpose` - Optimized matrix transpose (coalesced access patterns)
+- `alignedTypes` - Memory alignment for bandwidth
+- `UnifiedMemoryPerf` - Unified Memory performance analysis
+- `cudaGraphsPerfScaling` - CUDA Graphs performance scaling
+
+Full source available in the `examples/` directory with 206 samples total.
+
 ## High-Priority Best Practices
 
 1. **Profile first** - Use Nsight Compute/Systems to identify bottlenecks

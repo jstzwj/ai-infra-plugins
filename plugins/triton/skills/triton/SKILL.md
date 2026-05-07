@@ -99,6 +99,24 @@ def add_kernel(x_ptr, y_ptr, output_ptr, n_elements, BLOCK_SIZE: tl.constexpr):
 - [30-plugin-system](references/30-plugin-system.md) - Out-of-tree plugin dialects and passes
 - [31-testing](references/31-testing.md) - Test framework, lit tests, pytest
 
+## Code Examples
+
+Official tutorials from the Triton repository, providing verified reference implementations for common kernel patterns:
+
+| Example | Key Concepts |
+|---------|-------------|
+| [01-vector-add.py](examples/01-vector-add.py) | Basic kernel, `tl.load`/`tl.store`, block programming model, autotune |
+| [02-fused-softmax.py](examples/02-fused-softmax.py) | Fused kernel, online softmax, numerical stability, masking |
+| [03-matrix-multiplication.py](examples/03-matrix-multiplication.py) | Tiled matmul, shared memory via `tl.dot`, block pointers, `tl.autotune` |
+| [04-low-memory-dropout.py](examples/04-low-memory-dropout.py) | Random number generation, memory-efficient dropout, `tl.rand` |
+| [05-layer-norm.py](examples/05-layer-norm.py) | Reduction patterns, layer normalization, variance computation |
+| [06-fused-attention.py](examples/06-fused-attention.py) | Flash Attention, tiled softmax backward, complex multi-loop kernel |
+| [07-extern-functions.py](examples/07-extern-functions.py) | Calling external C/CUDA functions from Triton, `tl.extern` |
+| [08-grouped-gemm.py](examples/08-grouped-gemm.py) | Batched/variable-size grouped GEMM, problem splitting |
+| [09-persistent-matmul.py](examples/09-persistent-matmul.py) | Persistent kernels, software pipelining, long-lived kernel launch |
+| [10-block-scaled-matmul.py](examples/10-block-scaled-matmul.py) | Block-scaled (MxFP4/FP8) matmul, quantized GEMM patterns |
+| [11-programmatic-dependent-launch.py](examples/11-programmatic-dependent-launch.py) | Programmatic dependent launch, kernel synchronization via launch configs |
+
 ## Key Concepts
 
 ### Programming Model
