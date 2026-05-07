@@ -152,6 +152,33 @@ auto tensor = torch::rand({2, 3});
 auto result = torch::matmul(tensor, tensor.transpose(0, 1));
 ```
 
+## Code Examples
+
+Official examples from [pytorch/examples](https://github.com/pytorch/examples) (219 files), covering key deep learning patterns:
+
+| Category | Description |
+|----------|-------------|
+| `mnist/` | MNIST classification — basic training loop |
+| `mnist_hogwild/` | Hogwild multi-process training |
+| `mnist_rnn/` | RNN on MNIST |
+| `mnist_forward_forward/` | Forward-Forward algorithm |
+| `imagenet/` | ImageNet training with distributed data parallel |
+| `dcgan/` | DCGAN generative adversarial network |
+| `vae/` | Variational Autoencoder |
+| `word_language_model/` | LSTM/Transformer language modeling |
+| `time_sequence_prediction/` | Sequence prediction with RNN |
+| `regression/` | Polynomial regression |
+| `reinforcement_learning/` | DQN, policy gradient, actor-critic, REINFORCE |
+| `distributed/` | DDP, FSDP, pipeline parallel, RPC, minGPT-ddp |
+| `super_resolution/` | SRCNN super-resolution with AMP |
+| `fast_neural_style/` | Neural style transfer |
+| `language_translation/` | Seq2seq translation with attention |
+| `siamese_network/` | Siamese network for similarity |
+| `gat/` / `gcn/` | Graph neural networks (GAT, GCN) |
+| `fx/` | torch.fx graph manipulation examples |
+| `cpp/` | LibTorch C++ API examples |
+| `legacy/` | Legacy examples (AlephBet, SNLI, etc.) |
+
 ## Reference Chapters
 
 ### Core

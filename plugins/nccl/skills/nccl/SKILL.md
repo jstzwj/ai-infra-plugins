@@ -97,6 +97,27 @@ ncclGroupEnd();
 NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,NET,TUNING ./your_app
 ```
 
+## Code Examples
+
+Official NCCL performance tests from [NVIDIA/nccl-tests](https://github.com/NVIDIA/nccl-tests), covering all collective operations:
+
+| Example | Collective Operation |
+|---------|---------------------|
+| `src/all_reduce.cu` | AllReduce — sum/avg/min/max across all ranks |
+| `src/all_gather.cu` | AllGather — gather data from all ranks |
+| `src/alltoall.cu` | All-to-All — personalized communication |
+| `src/broadcast.cu` | Broadcast — one-to-all distribution |
+| `src/reduce.cu` | Reduce — reduce to single rank |
+| `src/reduce_scatter.cu` | ReduceScatter — scatter reduced data |
+| `src/gather.cu` | Gather — collect to single rank |
+| `src/scatter.cu` | Scatter — distribute from single rank |
+| `src/sendrecv.cu` | Send/Recv — point-to-point communication |
+| `src/hypercube.cu` | Hypercube collective algorithm |
+| `src/common.cu/h` | Common infrastructure: timing, data validation |
+| `verifiable/` | Verifiable NCCL operations with correctness checks |
+
+Each test supports configurable message sizes, data types, and iteration counts for benchmarking NCCL performance.
+
 ## Documentation map
 
 ### User-facing API and usage
