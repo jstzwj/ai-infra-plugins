@@ -208,6 +208,57 @@ tf.profiler.experimental.stop()
 
 ---
 
+## Scripts
+
+### nsys Report Parsing (`scripts/nsys-recipes/`)
+From [hyxcl/nsys_recipes](https://github.com/hyxcl/nsys_recipes) — Python scripts for analyzing nsys SQLite exports:
+
+| Script | Purpose |
+|--------|---------|
+| `nsys-recipes/kernel_overlap_trace/kernel_overlap_trace.py` | Trace kernel execution overlap patterns |
+| `nsys-recipes/nccl_gpu_overlap_trace/nccl_gpu_overlap_trace.py` | Trace NCCL communication vs GPU compute overlap |
+| `nsys-recipes/lib/overlap.py` | Overlap analysis library |
+| `nsys-recipes/lib/nccl.py` | NCCL trace parsing library |
+
+### NCU Report Tools (`scripts/ncu-tools/`)
+Scripts for parsing and comparing Nsight Compute reports:
+
+| Script | Purpose |
+|--------|---------|
+| `ncu-tools/compare_reports.py` | Compare multiple NCU report baselines |
+| `ncu-tools/decode.py` | Decode transformer model with NCU profiling |
+
+## Code Examples
+
+### Profiling Labs (`examples/profiling-labs/`)
+From [openhackathons-org/HPC_Profiler](https://github.com/openhackathons-org/HPC_Profiler) — step-by-step profiling exercises:
+
+| Lab | Description |
+|-----|-------------|
+| `lab1/` | Baseline: serial miniWeather (C++/Fortran) |
+| `lab2/` | OpenACC parallelization — first profiling with nsys |
+| `lab3/` | OpenACC optimization — data locality analysis |
+| `lab4/` | OpenACC optimization — gang/vector tuning |
+| `lab5/` | OpenACC optimization — advanced techniques |
+| `lab6/` | Jacobi solver: 8 progressive optimization steps with NCU |
+
+### NCU Python Report Interface (`examples/ncu-python-reports/`)
+From [NVIDIA/nsight-training](https://github.com/NVIDIA/nsight-training) — Jupyter notebooks for NCU Python API:
+
+| Notebook | Topic |
+|----------|-------|
+| `Aggregate_instruction_statistics.ipynb` | Aggregate instruction stat analysis |
+| `Breakdown_metrics.ipynb` | Metric breakdown by category |
+| `Kernel_name_based_filtering.ipynb` | Filter kernels by name pattern |
+| `Metric_attributes.ipynb` | Query metric attributes and units |
+| `NVTX_support.ipynb` | NVTX range-based profiling |
+| `Opcode_instanced_metrics.ipynb` | Opcode-level instanced metrics |
+| `Report2Json_conversion.ipynb` | Convert NCU reports to JSON |
+| `Source_correlated_metrics.ipynb` | Source-line correlated profiling |
+
+### vlog Memory Workload (`examples/vlog-memory-workload/`)
+CUDA sample for visualizing memory workload patterns with NCU — includes `main.cu` and CMake build.
+
 ## Chapter Summaries
 
 ### Chapter 1: Overview & Getting Started
